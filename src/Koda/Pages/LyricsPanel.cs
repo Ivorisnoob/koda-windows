@@ -29,8 +29,9 @@ internal sealed class LyricsPanel : IDisposable
     /// <summary>The audio leads the lyrics: a line lights as it is sung, not after.</summary>
     private const double Lead = 0.15;
 
-    /// <summary>Where the line being sung sits in the panel.</summary>
-    private const double ReadingAnchor = 0.32;
+    /// <summary>Where the line being sung sits in the panel: inside the top third, so the
+    /// eye barely travels and the lines that follow are already in view.</summary>
+    private const double ReadingAnchor = 0.25;
 
     /// <summary>How long the glide takes.</summary>
     private const int GlideMilliseconds = 550;
@@ -58,6 +59,7 @@ internal sealed class LyricsPanel : IDisposable
 
     private readonly ScrollViewer _scroll;
     private readonly StackPanel _lines;
+    private readonly Border _spacer = new();
     private readonly DispatcherQueueTimer _tween;
     private readonly DispatcherQueueTimer _frame;
 
@@ -67,6 +69,7 @@ internal sealed class LyricsPanel : IDisposable
     private double _offset;
     private bool _userScrolled;
     private bool _loaded;
+    private bool _needsGlide;
     private double _position;
     private double _panelWidth;
 
@@ -85,6 +88,8 @@ internal sealed class LyricsPanel : IDisposable
     private sealed class Row
     {
         public required LyricLine Line { get; init; }
+        /// <summary>The element that holds the line, for finding its place in the panel.</summary>
+        public FrameworkElement Host { get; set; } = null!;
         public required StackPanel Words { get; init; }
         public required StackPanel Background { get; init; }
         public List<Word> WordItems { get; } = [];
@@ -135,6 +140,12 @@ internal sealed class LyricsPanel : IDisposable
 
             _panelWidth = args.NewSize.Width;
             Reflow();
+
+            // The panel now knows how tall it is: put the line being sung where it belongs.
+            if (_current is not null)
+            {
+                GlideTo(_current);
+            }
         };
     }
 
@@ -203,6 +214,8 @@ internal sealed class LyricsPanel : IDisposable
             var host = new StackPanel { Margin = new Thickness(0, 7, 0, 7), Spacing = 6 };
             host.Children.Add(row.Words);
 
+            row.Host = host;
+
             // A tap on the line jumps the song to it, and hands the panel back to the song.
             host.Tapped += (_, _) =>
             {
@@ -251,6 +264,10 @@ internal sealed class LyricsPanel : IDisposable
                 _lines.Children.Add(dots);
             }
         }
+
+        // The room below the last line, so the final lines of a song can still be scrolled
+        // up to the reading position.
+        _lines.Children.Add(_spacer);
 
         Reflow();
     }    /// <summary>One word: its element, the mask it fills through, and its rise.</summary>
@@ -307,15 +324,20 @@ internal sealed class LyricsPanel : IDisposable
 
         foreach (var row in _rows)
         {
-            LayOut(row.Words, row.WordItems, width, 17);
+            LayOut(row.Words, row.WordItems, width);
             if (row.BackgroundItems.Count > 0)
             {
-                LayOut(row.Background, row.BackgroundItems, width, 14);
+                LayOut(row.Background, row.BackgroundItems, width);
             }
         }
+
+        // Room below the last line, so the final lines of a song can still be scrolled up
+        // to the reading position. Without it the scroll stops at the end and the line being
+        // sung drifts down out of the top third, which is exactly where it should not be.
+        _spacer.Height = Math.Max(0, _scroll.ViewportHeight);
     }
 
-    private void LayOut(StackPanel panel, List<Word> words, double width, double fontSize)
+    private void LayOut(StackPanel panel, List<Word> words, double width)
     {
         panel.Children.Clear();
         StackPanel? line = null;
@@ -339,6 +361,13 @@ internal sealed class LyricsPanel : IDisposable
     public void PlayEntrance()
     {
         _frame.Start();
+
+        // The panel has just come into view: the line being sung is placed now that the
+        // panel knows its height (before that, there was nothing to measure against).
+        if (_current is not null)
+        {
+            GlideTo(_current);
+        }
 
         // The fade is the app's own pattern: a storyboard on the element's Opacity.
         // (A transform created in code cannot be a storyboard's target - only a
@@ -402,6 +431,12 @@ internal sealed class LyricsPanel : IDisposable
     /// </summary>
     private void Paint()
     {
+        if (_needsGlide && _current is not null && _scroll.ViewportHeight > 1)
+        {
+            _needsGlide = false;
+            GlideTo(_current);
+        }
+
         foreach (var row in _rows)
         {
             // The rows step back into place with a spring of their own.
@@ -490,17 +525,17 @@ internal sealed class LyricsPanel : IDisposable
     /// <summary>The glide to the line being sung: a spring, never a jump.</summary>
     private void GlideTo(Row row)
     {
-        var index = _rows.IndexOf(row);
-        if (index < 0 || index >= _lines.Children.Count)
+        if (_scroll.ViewportHeight <= 1)
         {
+            // The panel has no height yet (it is coming into view): try again in a frame.
+            _needsGlide = true;
             return;
         }
 
         double target;
         try
         {
-            var host = _lines.Children[index];
-            var offset = host.TransformToVisual(_lines).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+            var offset = row.Host.TransformToVisual(_lines).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
             target = Math.Max(0, offset - _scroll.ViewportHeight * ReadingAnchor);
         }
         catch (Exception)
