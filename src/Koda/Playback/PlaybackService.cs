@@ -44,6 +44,7 @@ public sealed class PlaybackService
     private bool _resolving;
     private bool _wantsToPlay;
     private bool _failedOnce;
+    private bool _recovering;
     private bool _extending;
     /// <summary>Bumped per track start, so a slow resolve for a song skipped past is dropped.</summary>
     private int _generation;
@@ -396,11 +397,13 @@ public sealed class PlaybackService
         }
 
         _currentStream = stream;
-        _player.Load(stream, song);
+        // The start position travels with the load: the source attaches a moment
+        // later, so a seek asked for now would be lost.
+        _player.Load(stream, song, resumeAt);
         _loaded = true;
-        if (resumeAt > 1) _player.Seek(resumeAt);
         _player.Play();
         App.Library.RecordPlay(song);
+        App.Library.Flush(); // the listening time of the finished song is on disk now
         TrackChanged?.Invoke(); // the exact duration is known now
         _ = TopUpAsync();
     }
@@ -460,6 +463,16 @@ public sealed class PlaybackService
 
     private async Task OnEndedAsync()
     {
+        // A player that runs out of samples says "ended" for two reasons: the song
+        // finished, or the bytes stopped coming (a refused range, a stall). Only the
+        // second one must not move the queue on - otherwise the listener loses the
+        // song they were in and another one starts from its first second.
+        if (Koda.Core.Playback.TrackEnd.LooksEarly(PositionSeconds, DurationSeconds))
+        {
+            await RecoverAsync("the audio stream ended early");
+            return;
+        }
+
         var before = _queue.Current?.Id;
         if (_queue.Advance(automatic: true) is { } next)
         {
@@ -495,6 +508,13 @@ public sealed class PlaybackService
             return;
         }
 
+        // A broken stream says so twice: the player fails and the source runs dry.
+        // One recovery at a time, or the song would be resolved and loaded twice.
+        if (_recovering)
+        {
+            return;
+        }
+
         // One honest retry: forget the URL (and the possibly refused visitor), resolve again.
         if (_failedOnce)
         {
@@ -505,6 +525,12 @@ public sealed class PlaybackService
             return;
         }
 
+        // Where the listener was when the stream broke. The retry continues the song
+        // from there - a stream that fails a minute in must not send the listener back
+        // to the first second of the song they were in.
+        var resumeAt = PositionSeconds;
+
+        _recovering = true;
         _failedOnce = true;
         App.AudioStore.Discard(song.Id);
         try
@@ -517,8 +543,15 @@ public sealed class PlaybackService
         }
 
         var keep = _failedOnce;
-        await PlayCurrentAsync();
-        _failedOnce = keep;
+        try
+        {
+            await PlayCurrentAsync(resumeAt: resumeAt);
+        }
+        finally
+        {
+            _recovering = false;
+            _failedOnce = keep;
+        }
     }
 
     private void Report(MusicException error) =>

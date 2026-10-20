@@ -21,6 +21,8 @@ public sealed class Player : IDisposable
     private readonly object _attach = new();
     /// <summary>Bumped per Load and Stop, so a source that opens late for an old track is dropped.</summary>
     private int _generation;
+    /// <summary>Where the song must start once the media is ready to be moved there.</summary>
+    private double _pendingPosition;
     private bool _wantsPlay;
 
     /// <summary>The track reached its end (raised off the UI thread).</summary>
@@ -77,11 +79,15 @@ public sealed class Player : IDisposable
     /// swapping Source on a live MediaPlayer surfaces the old source's MediaEnded, which
     /// the queue would read as a real track end.
     ///
+    /// <paramref name="startAtSeconds"/> is where the song starts: a song that was
+    /// resumed after a broken stream continues where it stopped, not at its first
+    /// second. The source attaches a moment later, so the position waits for it.
+    ///
     /// The bytes ride our own transport (Koda.Core's CachingLoader): every byte reaches the
     /// player through our own ranged HttpClient with the per-client user agent, while the
     /// store keeps them on disk for the next play. A stream without a content length - never
     /// a resolved AAC - falls back to the direct URL.</summary>
-    public void Load(ResolvedStream resolved, Song? song)
+    public void Load(ResolvedStream resolved, Song? song, double startAtSeconds = 0)
     {
         if (_player is null)
         {
@@ -113,6 +119,7 @@ public sealed class Player : IDisposable
 
         var generation = ++_generation;
         _wantsPlay = false;
+        _pendingPosition = Math.Max(0, startAtSeconds);
         if (resolved.Url.IsFile)
         {
             // A song held whole on disk: the same frames, read from the file.
@@ -251,12 +258,30 @@ public sealed class Player : IDisposable
 
     public void Seek(double seconds)
     {
-        if (_player is not { } player)
+        var position = Math.Max(0, seconds);
+        _pendingPosition = position;
+        if (_player is not { } player || _source is null)
         {
+            // The source is not attached yet: the position waits for it, so a seek
+            // during the loading window is not lost.
             return;
         }
 
-        player.PlaybackSession.Position = TimeSpan.FromSeconds(Math.Max(0, seconds));
+        ApplyPosition(player, position);
+    }
+
+    /// <summary>Move the playhead. The position stays pending when the session refuses it.</summary>
+    private void ApplyPosition(MediaPlayer player, double seconds)
+    {
+        try
+        {
+            player.PlaybackSession.Position = TimeSpan.FromSeconds(seconds);
+            _pendingPosition = 0;
+        }
+        catch (Exception)
+        {
+            // Not ready yet; the position waits and is applied when the media opens.
+        }
     }
 
     public void Stop()
@@ -289,6 +314,13 @@ public sealed class Player : IDisposable
 
     private void OnCurrentStateChanged(MediaPlayer sender, object args)
     {
+        // A position asked for before the source attached is applied now that the
+        // media is there: this is what makes a resumed song continue where it stopped.
+        if (_pendingPosition > 0 && sender.CurrentState is MediaPlayerState.Playing or MediaPlayerState.Buffering)
+        {
+            ApplyPosition(sender, _pendingPosition);
+        }
+
         StateReached?.Invoke(sender.CurrentState);
     }
 

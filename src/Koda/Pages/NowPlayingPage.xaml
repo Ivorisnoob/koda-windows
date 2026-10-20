@@ -190,20 +190,50 @@
                 <!-- Narrow with the queue open: the list takes the cover's place. -->
                 <ContentPresenter x:Name="NarrowQueueHost" Grid.Row="2" Margin="0,12,0,0" />
 
-                <!-- Bottom bar: the queue toggle (lyrics land here when they are ported). -->
+                <!-- Bottom bar: the lyrics and the queue. -->
                 <Grid Grid.Row="3" Margin="0,10,0,0">
-                    <ToggleButton
-                        x:Name="QueueToggle"
-                        HorizontalAlignment="Right"
-                        Width="52"
-                        Height="40"
-                        CornerRadius="20"
-                        Click="OnQueueToggleClick"
-                        ToolTipService.ToolTip="Queue"
-                        AutomationProperties.Name="Queue">
-                        <FontIcon Glyph="&#xE8FD;" FontSize="16" />
-                    </ToggleButton>
+                    <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
+                        <ToggleButton
+                            x:Name="LyricsToggle"
+                            Width="52"
+                            Height="40"
+                            CornerRadius="20"
+                            Click="OnLyricsToggleClick"
+                            ToolTipService.ToolTip="Lyrics"
+                            AutomationProperties.Name="Lyrics">
+                            <FontIcon Glyph="&#xE8D2;" FontSize="16" />
+                        </ToggleButton>
+                        <ToggleButton
+                            x:Name="QueueToggle"
+                            Width="52"
+                            Height="40"
+                            CornerRadius="20"
+                            Click="OnQueueToggleClick"
+                            ToolTipService.ToolTip="Queue"
+                            AutomationProperties.Name="Queue">
+                            <FontIcon Glyph="&#xE8FD;" FontSize="16" />
+                        </ToggleButton>
+                    </StackPanel>
                 </Grid>
+            </Grid>
+
+            <!-- The lyrics panel: the lines, the one being sung lit, the words inside it. -->
+            <Grid x:Name="LyricsPanel" Grid.Row="1" Grid.Column="1" MaxWidth="620" Visibility="Collapsed">
+                <ScrollViewer
+                    x:Name="LyricsScroll"
+                    VerticalScrollBarVisibility="Auto"
+                    VerticalScrollMode="Auto"
+                    HorizontalScrollMode="Disabled">
+                    <StackPanel x:Name="LyricsLines" />
+                </ScrollViewer>
+                <TextBlock
+                    x:Name="LyricsEmpty"
+                    Visibility="Collapsed"
+                    Text="No lyrics for this song."
+                    Style="{ThemeResource CaptionTextBlockStyle}"
+                    Foreground="#B3FFFFFF"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center" />
             </Grid>
 
             <!-- The queue panel: modes, Up Next with Clear, the list. -->
