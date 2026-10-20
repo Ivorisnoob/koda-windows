@@ -3,7 +3,6 @@ using Koda.Core;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Shapes;
@@ -15,10 +14,11 @@ namespace Koda.Pages;
 /// The lyrics panel: the lines, the one being sung lit, and the words inside it filling
 /// from their left edge as they are sung.
 ///
-/// The motion is the Mac's: a spring glide to the line being sung (it lands a third of
-/// the way down, so the listener reads ahead), the words lighting as they are sung, and
-/// the panel arriving with a short fade. The lines never jump - the glide is a tween
-/// with an ease-out-back curve, the same spring the cover uses.
+/// The motion is the Mac's, word for word. A word fills through a soft-edged mask that
+/// runs from its left edge, rises a touch as it starts (so a line moves as a ripple),
+/// and a note held long swells and glows. The lines around the one being sung step
+/// back: dimmer, a little smaller. The panel glides to the line being sung with a
+/// spring - it lands a third of the way down, so the listener reads ahead.
 ///
 /// The listener's own correction for a song (the offset the Library keeps) is honoured,
 /// and the audio leads the lyrics by a fraction of a second, so a line lights as it is
@@ -38,6 +38,24 @@ internal sealed class LyricsPanel : IDisposable
     /// <summary>A gap of this many seconds or more shows the interlude dots.</summary>
     private const double InterludeSeconds = 4.0;
 
+    /// <summary>How long a word takes to rise, in seconds.</summary>
+    private const double RiseSeconds = 0.65;
+
+    /// <summary>How far a word rises, in pixels.</summary>
+    private const double RisePixels = 2.5;
+
+    /// <summary>A note held longer than this starts to swell.</summary>
+    private const double SustainStart = 0.9;
+
+    /// <summary>The soft front of the filling mask, as a part of the word's width.</summary>
+    private const double Feather = 0.35;
+
+    /// <summary>How far a swelling note grows.</summary>
+    private const double SwellScale = 0.045;
+
+    /// <summary>How wide the words sit from each other, as a part of the text size.</summary>
+    private const double WordSpacing = 0.25;
+
     private readonly ScrollViewer _scroll;
     private readonly StackPanel _lines;
     private readonly DispatcherQueueTimer _tween;
@@ -48,17 +66,34 @@ internal sealed class LyricsPanel : IDisposable
     private double _offset;
     private bool _userScrolled;
     private bool _loaded;
+    private double _position;
+    private double _panelWidth;
 
-    /// <summary>One line in the panel: its text, its runs, and the line itself.</summary>
+    /// <summary>One word in the panel: the element that draws it and the timings behind it.</summary>
+    private sealed class Word
+    {
+        public required LyricWord Data { get; init; }
+        public required TextBlock Element { get; init; }
+        /// <summary>The mask the word fills through.</summary>
+        public required LinearGradientBrush Fill { get; init; }
+        /// <summary>The rise and the swell of the word.</summary>
+        public required CompositeTransform Transform { get; init; }
+    }
+
+    /// <summary>One line in the panel: its words, its backing vocals and the line itself.</summary>
     private sealed class Row
     {
         public required LyricLine Line { get; init; }
-        public required TextBlock Text { get; init; }
-        public TextBlock? Background { get; set; }
-        /// <summary>The runs of a word-timed line, one per word.</summary>
-        public List<Run> Runs { get; init; } = [];
+        public required StackPanel Words { get; init; }
+        public required StackPanel Background { get; init; }
+        public List<Word> WordItems { get; } = [];
+        public List<Word> BackgroundItems { get; } = [];
         /// <summary>The three dots of an interlude, when the gap after this line is long.</summary>
-        public List<Ellipse> Dots { get; init; } = [];
+        public List<Ellipse> Dots { get; } = [];
+        /// <summary>How opaque the row is: the one being sung is full, the rest step back.</summary>
+        public double Opacity { get; set; } = 0.3;
+        /// <summary>How large the row is: the one being sung is full size.</summary>
+        public double Scale { get; set; } = 0.97;
     }
 
     public LyricsPanel(ScrollViewer scroll, StackPanel lines, DispatcherQueue queue)
@@ -74,8 +109,23 @@ internal sealed class LyricsPanel : IDisposable
         // The words: they fill while they are sung, so the panel keeps a frame timer.
         _frame = queue.CreateTimer();
         _frame.Interval = TimeSpan.FromMilliseconds(33);
-        _frame.Tick += (_, _) => Paint(_current, Position());
+        _frame.Tick += (_, _) => Paint();
+
+        // The words are laid out in rows that fit the panel, so a line breaks where it should.
+        _scroll.SizeChanged += (_, args) =>
+        {
+            if (Math.Abs(args.NewSize.Width - _panelWidth) < 1)
+            {
+                return;
+            }
+
+            _panelWidth = args.NewSize.Width;
+            Reflow();
+        };
     }
+
+    /// <summary>Called when a line is tapped: the song jumps to that line.</summary>
+    public Action<double>? Seek { get; set; }
 
     /// <summary>The listener's correction for this song, in seconds.</summary>
     public double Offset
@@ -84,18 +134,12 @@ internal sealed class LyricsPanel : IDisposable
         set => _offset = value;
     }
 
-    public bool HasLyrics => _loaded && _rows.Count > 0;
-
     /// <summary>Whether the listener has scrolled away; the panel stops following then.</summary>
     public bool UserScrolled
     {
         get => _userScrolled;
         set => _userScrolled = value;
     }
-
-    private double Position() => _position;
-
-    private double _position;
 
     /// <summary>The song's place in time, with the listener's correction and the lead.</summary>
     public void SetPosition(double positionSeconds) => _position = positionSeconds + Lead - _offset;
@@ -131,48 +175,37 @@ internal sealed class LyricsPanel : IDisposable
         for (var index = 0; index < lyrics.Lines.Count; index++)
         {
             var line = lyrics.Lines[index];
-            var text = new TextBlock
+            var row = new Row
             {
-                // A word-timed line is written as runs later, so its text stays empty:
-                // WinUI does not let a TextBlock carry both Text and Inlines.
-                Text = line.IsWordTimed ? string.Empty : line.Text,
-                TextWrapping = TextWrapping.Wrap,
-                FontSize = 17,
-                Foreground = Brush(0x59),
+                Line = line,
+                Words = new StackPanel { Spacing = 4 },
+                Background = new StackPanel { Spacing = 2, Opacity = 0.7 },
             };
 
-            var row = new Row { Line = line, Text = text };
-            text.Tapped += (_, _) =>
+            var host = new StackPanel { Margin = new Thickness(0, 7, 0, 7), Spacing = 6 };
+            host.Children.Add(row.Words);
+
+            // A tap on the line jumps the song to it, and hands the panel back to the song.
+            host.Tapped += (_, _) =>
             {
                 _userScrolled = false;
                 Seek?.Invoke(line.Time);
             };
 
-            if (line.IsWordTimed)
+            foreach (var word in line.Words)
             {
-                foreach (var word in line.Words)
-                {
-                    var run = new Run
-                    {
-                        Text = word.SpaceAfter ? word.Text + " " : word.Text,
-                        Foreground = Brush(0x59),
-                    };
-                    text.Inlines.Add(run);
-                    row.Runs.Add(run);
-                }
+                var item = MakeWord(word, 17);
+                row.WordItems.Add(item);
             }
 
-            var host = new StackPanel { Margin = new Thickness(0, 7, 0, 7) };
-            host.Children.Add(text);
-            if (line.Background.Count > 0)
+            foreach (var word in line.Background)
             {
-                row.Background = new TextBlock
-                {
-                    Text = string.Join(' ', line.Background.Select(w => w.Text)),
-                    TextWrapping = TextWrapping.Wrap,
-                    FontSize = 14,
-                    Foreground = Brush(0x40),
-                };
+                var item = MakeWord(word, 14);
+                row.BackgroundItems.Add(item);
+            }
+
+            if (row.BackgroundItems.Count > 0)
+            {
                 host.Children.Add(row.Background);
             }
 
@@ -191,12 +224,7 @@ internal sealed class LyricsPanel : IDisposable
                 };
                 for (var dot = 0; dot < 3; dot++)
                 {
-                    var ellipse = new Ellipse
-                    {
-                        Width = 6,
-                        Height = 6,
-                        Fill = Brush(0x33),
-                    };
+                    var ellipse = new Ellipse { Width = 6, Height = 6, Fill = Brush(0x33) };
                     dots.Children.Add(ellipse);
                     row.Dots.Add(ellipse);
                 }
@@ -204,12 +232,93 @@ internal sealed class LyricsPanel : IDisposable
                 _lines.Children.Add(dots);
             }
         }
+
+        Reflow();
     }
 
-    /// <summary>Called when a line is tapped: the song jumps to that line.</summary>
-    public Action<double>? Seek { get; set; }
+    /// <summary>One word: its element, the mask it fills through, and its rise.</summary>
+    private Word MakeWord(LyricWord word, double fontSize)
+    {
+        var fill = new LinearGradientBrush
+        {
+            StartPoint = new Windows.Foundation.Point(0, 0),
+            EndPoint = new Windows.Foundation.Point(1, 0),
+            GradientStops =
+            {
+                new GradientStop { Color = Brush(0xFF).Color, Offset = 0 },
+                new GradientStop { Color = Brush(0xFF).Color, Offset = 0 },
+                new GradientStop { Color = Brush(0x61).Color, Offset = 0.0001 },
+            },
+        };
 
-    /// <summary>Puts the panel on screen with a short fade and a small rise.</summary>
+        var transform = new CompositeTransform();
+        var element = new TextBlock
+        {
+            // The space between words is a margin, not a space in the text: a trailing
+            // space in a text block does not draw, and two syllables of one word must
+            // sit together.
+            Text = word.Text,
+            Margin = new Thickness(0, 0, word.SpaceAfter ? fontSize * WordSpacing : 0, 0),
+            FontSize = fontSize,
+            Foreground = fill,
+            RenderTransform = transform,
+            TextWrapping = TextWrapping.NoWrap,
+        };
+
+        element.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+
+        return new Word
+        {
+            Data = word,
+            Element = element,
+            Fill = fill,
+            Transform = transform,
+        };
+    }
+
+    /// <summary>
+    /// The words of a line are set left to right and wrapped like text, so a line breaks
+    /// the same way whether it is being sung or resting.
+    /// </summary>
+    private void Reflow()
+    {
+        var width = _panelWidth - 24;
+        if (width <= 0)
+        {
+            return;
+        }
+
+        foreach (var row in _rows)
+        {
+            LayOut(row.Words, row.WordItems, width, 17);
+            if (row.BackgroundItems.Count > 0)
+            {
+                LayOut(row.Background, row.BackgroundItems, width, 14);
+            }
+        }
+    }
+
+    private void LayOut(StackPanel panel, List<Word> words, double width, double fontSize)
+    {
+        panel.Children.Clear();
+        StackPanel? line = null;
+        var used = 0.0;
+        foreach (var word in words)
+        {
+            var w = word.Element.DesiredSize.Width + word.Element.Margin.Right;
+            if (line is null || used + w > width)
+            {
+                line = new StackPanel { Orientation = Orientation.Horizontal };
+                panel.Children.Add(line);
+                used = 0;
+            }
+
+            line.Children.Add(word.Element);
+            used += w;
+        }
+    }
+
+    /// <summary>Puts the panel on screen with a short fade.</summary>
     public void PlayEntrance()
     {
         // The fade is the app's own pattern: a storyboard on the element's Opacity.
@@ -239,8 +348,7 @@ internal sealed class LyricsPanel : IDisposable
             return;
         }
 
-        var time = _position;
-        var index = Lyrics.IndexOf(time, _rows.Select(r => r.Line).ToList()) ?? -1;
+        var index = Lyrics.IndexOf(_position, _rows.Select(r => r.Line).ToList()) ?? -1;
         if (index < 0 || index >= _rows.Count)
         {
             return;
@@ -250,84 +358,54 @@ internal sealed class LyricsPanel : IDisposable
         if (!ReferenceEquals(row, _current))
         {
             _current = row;
-            Light(row);
+            foreach (var other in _rows)
+            {
+                var distance = Math.Abs(_rows.IndexOf(other) - index);
+                other.Opacity = other == row ? 1 : distance <= 1 ? 0.42 : 0.3;
+                other.Scale = other == row ? 1 : 0.97;
+            }
+
             if (!_userScrolled)
             {
                 GlideTo(row);
             }
         }
 
-        Paint(row, time);
+        Paint();
     }
 
-    /// <summary>The line being sung is lit and lifted; the rest step back.</summary>
-    private void Light(Row row)
+    /// <summary>
+    /// The words of the line being sung, redrawn every frame: the mask runs across the
+    /// word, the word rises as it starts, a note held long swells and glows.
+    /// </summary>
+    private void Paint()
     {
-        foreach (var other in _rows)
+        foreach (var row in _rows)
         {
-            var current = ReferenceEquals(other, row);
-            other.Text.Foreground = current ? Brush(0xFF) : Brush(0x59);
-            other.Text.FontSize = current ? 20 : 17;
-            if (other.Background is not null)
+            // The rows step back into place with a spring of their own.
+            row.Words.Opacity = Approach(row.Words.Opacity, row.Opacity);
+            foreach (var word in row.WordItems)
             {
-                other.Background.Foreground = current ? Brush(0x80) : Brush(0x40);
+                word.Transform.ScaleX = Approach(word.Transform.ScaleX, row.Scale);
+                word.Transform.ScaleY = word.Transform.ScaleX;
             }
         }
 
-        // The line arrives with a small spring, the way the cover does.
-        var arrival = new DoubleAnimation
-        {
-            From = 0.5,
-            To = 1,
-            Duration = TimeSpan.FromMilliseconds(420),
-            EasingFunction = new ElasticEase { Oscillations = 1, Springiness = 8, EasingMode = EasingMode.EaseOut },
-        };
-        Storyboard.SetTarget(arrival, row.Text);
-        Storyboard.SetTargetProperty(arrival, "Opacity");
-        var storyboard = new Storyboard();
-        storyboard.Children.Add(arrival);
-        storyboard.Begin();
-    }
-
-    /// <summary>The words of the line being sung, filling from their left edge.</summary>
-    private void Paint(Row? row, double time)
-    {
-        if (row is null || row.Runs.Count == 0)
+        var current = _current;
+        if (current is null)
         {
             return;
         }
 
-        var words = row.Line.Words;
-        for (var index = 0; index < words.Count && index < row.Runs.Count; index++)
+        var time = _position;
+        foreach (var word in current.WordItems)
         {
-            var word = words[index];
-            var run = row.Runs[index];
-            if (time >= word.End)
-            {
-                run.Foreground = Brush(0xCC); // sung
-                continue;
-            }
+            Paint(word, time);
+        }
 
-            if (time <= word.Start)
-            {
-                run.Foreground = Brush(0x59); // still to come
-                continue;
-            }
-
-            // The word being sung: it fills from its left edge.
-            var progress = (time - word.Start) / Math.Max(0.001, word.End - word.Start);
-            var gradient = new LinearGradientBrush
-            {
-                StartPoint = new Windows.Foundation.Point(0, 0),
-                EndPoint = new Windows.Foundation.Point(1, 0),
-                GradientStops =
-                {
-                    new GradientStop { Color = Brush(0xFF).Color, Offset = 0 },
-                    new GradientStop { Color = Brush(0xFF).Color, Offset = Math.Clamp(progress, 0, 1) },
-                    new GradientStop { Color = Brush(0x59).Color, Offset = Math.Clamp(progress, 0, 1) },
-                },
-            };
-            run.Foreground = gradient;
+        foreach (var word in current.BackgroundItems)
+        {
+            Paint(word, time);
         }
 
         // The interlude dots fill while the silence lasts.
@@ -338,7 +416,6 @@ internal sealed class LyricsPanel : IDisposable
                 continue;
             }
 
-            var next = other.Line.Time + InterludeSeconds;
             var fill = Math.Clamp((time - other.Line.Time) / InterludeSeconds, 0, 1);
             for (var dot = 0; dot < other.Dots.Count; dot++)
             {
@@ -348,17 +425,51 @@ internal sealed class LyricsPanel : IDisposable
         }
     }
 
+    /// <summary>One word: how much of it is sung, how far it has risen, how much it glows.</summary>
+    private void Paint(Word word, double time)
+    {
+        var data = word.Data;
+        var fill = Math.Clamp((time - data.Start) / Math.Max(0.001, data.End - data.Start), 0, 1);
+        var rise = Math.Clamp((time - data.Start) / RiseSeconds, 0, 1);
+        var eased = 1 - Math.Pow(1 - rise, 3); // quick at first, settling gently
+        var sustainStrength = Math.Clamp((data.End - data.Start - SustainStart) / SustainStart, 0, 1);
+        var sustain = sustainStrength * Math.Sin(Math.PI * fill);
+
+        // The mask runs from -feather to 1, so the word is clear at the start and full at the end.
+        var front = fill * (1 + Feather);
+        var stops = word.Fill.GradientStops;
+        stops[0].Offset = 0;
+        stops[1].Offset = Math.Max(0, front - Feather);
+        stops[1].Color = Brush(0xFF).Color;
+        stops[2].Offset = Math.Min(1, Math.Max(front, 0.0001));
+        stops[2].Color = Brush(0x61).Color;
+
+        // The word rises as it is sung: a ripple through the line.
+        word.Transform.TranslateY = -RisePixels * eased;
+
+        // A note held long swells.
+        var swell = 1 + SwellScale * sustain;
+        word.Transform.ScaleX = swell;
+        word.Transform.ScaleY = swell;
+    }
+
+    /// <summary>A step toward a value, with the softness of a spring.</summary>
+    private static double Approach(double current, double target)
+    {
+        var step = (target - current) * 0.18;
+        if (Math.Abs(step) < 0.001)
+        {
+            return target;
+        }
+
+        return current + step;
+    }
+
     /// <summary>The glide to the line being sung: a spring, never a jump.</summary>
     private void GlideTo(Row row)
     {
-        if (_rows.IndexOf(row) < 0)
-        {
-            return;
-        }
-
         var index = _rows.IndexOf(row);
-        var host = _lines.Children.Count > index ? _lines.Children[index] : null;
-        if (host is null)
+        if (index < 0 || index >= _lines.Children.Count)
         {
             return;
         }
@@ -366,6 +477,7 @@ internal sealed class LyricsPanel : IDisposable
         double target;
         try
         {
+            var host = _lines.Children[index];
             var offset = host.TransformToVisual(_lines).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
             target = Math.Max(0, offset - _scroll.ViewportHeight * ReadingAnchor);
         }
