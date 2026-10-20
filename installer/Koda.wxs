@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The classic Windows installer: a real .msi, installed and uninstalled by Windows
+  Installer, with an entry in Installed apps.
+
+  No signing certificate is needed to install it: an unsigned MSI installs like any
+  other, the only difference being that Windows cannot show who published it. The
+  certificate is worth money only for a trusted-publisher label and no SmartScreen
+  nag - neither is required to run the app.
+
+  The install is per-user, into the user's own Programs folder, so it needs no
+  administrator rights: the app stays where the user can reach it, and Windows
+  Installer keeps track of it for uninstall and repair.
+
+  Build it with the release publish output:
+      wix build installer\Koda.wxs -arch x64 `
+          -d PublishDir=<publish folder> -d ProductVersion=0.1.0.0 -o Koda.msi
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <Package Name="Koda"
+           Manufacturer="Koda"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="6C3B0F1A-4E27-4C6E-9C1E-2F7A5D8B3E10"
+           Scope="perUser"
+           Compressed="yes"
+           InstallerVersion="500">
+
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of Koda is already installed." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- The app itself: the self-contained publish output, unchanged. -->
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="Koda">
+          <Files Include="$(var.PublishDir)\**" />
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <!-- The Start menu entry, carrying the app's identity so the taskbar groups it
+         and the media card knows its name. -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppShortcutFolder" Name="Koda">
+        <Component Id="AppShortcutComponent" Directory="AppShortcutFolder" Guid="*">
+          <Shortcut Id="AppShortcut"
+                    Name="Koda"
+                    Description="A music player for Windows, powered by YouTube Music."
+                    Target="[INSTALLFOLDER]Koda.exe"
+                    WorkingDirectory="INSTALLFOLDER"
+                    Advertise="no"
+                    Icon="AppIcon.ico">
+            <ShortcutProperty Key="System.AppUserModel.ID" Value="Koda.Desktop" />
+          </Shortcut>
+          <RegistryValue Root="HKCU"
+                         Key="Software\Koda"
+                         Name="StartMenuEntry"
+                         Type="integer"
+                         Value="1"
+                         KeyPath="yes" />
+          <RemoveFolder Id="RemoveAppShortcutFolder" On="uninstall" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Icon Id="AppIcon.ico" SourceFile="$(var.PublishDir)\Assets\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/Ivorisnoob/Koda-Windows" />
+  </Package>
+</Wix>

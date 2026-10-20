@@ -85,7 +85,22 @@ if ($CertificateThumbprint) {
     Write-Host "==> No certificate given: skipping the MSIX. Pass -CertificateThumbprint to build it."
 }
 
+# The MSI needs no certificate: Windows Installer installs an unsigned package
+# without complaint. It is the installer people can use today.
+$wix = Get-Command wix -ErrorAction SilentlyContinue
+if (-not $wix -and (Test-Path 'F:\Tools\koda\wix\wix.exe')) { $wix = Get-Command 'F:\Tools\koda\wix\wix.exe' }
+if ($wix) {
+    Write-Host '==> Packaging the MSI'
+    $msi = Join-Path $Output "msi\Koda-$version-win-$Runtime.msi"
+    New-Item -ItemType Directory -Force -Path (Split-Path $msi) | Out-Null
+    & $wix.Source build (Join-Path $repo 'installer\Koda.wxs') -arch $Runtime `
+        "-d" "PublishDir=$publish" "-d" "ProductVersion=$version" -o $msi
+    if ($LASTEXITCODE -ne 0) { throw "MSI packaging failed ($LASTEXITCODE)" }
+} else {
+    Write-Host '==> WiX not found: skipping the MSI. Install it with: dotnet tool install --tool-path <path> wix --version 5.0.2'
+}
+
 Write-Host ''
 Write-Host 'Artifacts:'
-Get-ChildItem $Output -Recurse -File | Where-Object { $_.Extension -in '.zip', '.msix' } |
+Get-ChildItem $Output -Recurse -File | Where-Object { $_.Extension -in '.zip', '.msix', '.msi' } |
     ForEach-Object { '    {0}  ({1:N1} MB)' -f $_.FullName, ($_.Length / 1MB) }

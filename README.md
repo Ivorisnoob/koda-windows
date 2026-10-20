@@ -53,20 +53,21 @@ toasts, `koda://` protocol handling, and a separate Settings window.
 
 ## Installing
 
-**Portable build (today).** Download `Koda-<version>-win-x64-portable.zip`, unpack it anywhere,
-and run `Koda.exe`. Nothing is installed, nothing is registered, no runtime setup, no prompts.
-The app is self-contained: the Windows App SDK runtime travels inside the zip.
+**The installer (MSI).** Download `Koda-<version>-win-x64.msi` and double-click it. Windows
+Installer does the rest: the app lands in your own Programs folder, a Koda entry appears in the
+Start menu and in Installed apps, and uninstalling is Settings → Apps → Koda. No administrator
+rights are needed, and no certificate: Windows Installer installs an unsigned package without
+complaint. A signing certificate would only buy a "trusted publisher" label and a quieter
+SmartScreen message for the downloaded file.
 
-**Windows package (the native install).** The repository also builds an MSIX package - the format
-Windows installs natively: double-click, App Installer, Start menu entry, automatic updates, and
-an uninstall entry in Settings. A package handed to a user must be signed by a certificate the
-operating system already trusts:
+**Portable build.** Download `Koda-<version>-win-x64-portable.zip`, unpack it anywhere, and run
+`Koda.exe`. Nothing is installed, nothing is registered, no runtime setup, no prompts. The app is
+self-contained: the Windows App SDK runtime travels inside the zip.
 
-- sign it with a code-signing certificate from a public CA (the package then installs like any
-  store app, with no warnings), or
-- publish it to the Microsoft Store, which signs it with Microsoft's own certificate.
-
-Both are release-time decisions. The self-signed build in `scripts/build-release.ps1` exists for
+**Windows package (MSIX).** The repository also builds an MSIX package - the format the Store
+and winget use, with automatic updates. It must be signed by a certificate the operating system
+already trusts: a code-signing certificate from a public CA, or the Microsoft Store's own
+signature after submission. The self-signed build in `scripts/build-release.ps1` exists for
 local development and is not distributable - Windows refuses to deploy it on a normal machine.
 
 ## Building from source
@@ -86,13 +87,16 @@ dotnet test tests\Koda.Core.Tests
 
 The app executable lands in `src\Koda\bin\x64\Debug\net10.0-windows10.0.26100.0\`.
 
-To build the release artifacts (the portable zip, and the MSIX package when a signing
-certificate is given):
+To build the release artifacts (the portable zip, the MSI installer, and the MSIX package when a
+signing certificate is given):
 
 ```powershell
 .\scripts\build-release.ps1
 .\scripts\build-release.ps1 -CertificateThumbprint <thumbprint>
 ```
+
+The MSI is built with the [WiX Toolset](https://wixtoolset.org) (`dotnet tool install --tool-path
+<path> wix --version 5.0.2`); the project is `installer/Koda.wxs`.
 
 ## Where your data lives
 
