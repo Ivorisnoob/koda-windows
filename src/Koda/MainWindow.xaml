@@ -1,0 +1,299 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Koda.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    xmlns:helpers="using:Koda.Helpers"
+    Title="Koda">
+
+    <Grid x:Name="Root">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="48" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- The title bar is the app's own content over Mica (Windows 11 idiom, like Settings):
+             back, icon and name, the search field centered; caption buttons sit over it. -->
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Background="Transparent">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="LeftInset" Width="0" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition x:Name="RightInset" Width="0" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="4" Margin="4,0,0,0">
+                <Button
+                    x:Name="BackButton"
+                    Width="40"
+                    Height="36"
+                    Padding="0"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    IsEnabled="False"
+                    Click="OnBackClick"
+                    ToolTipService.ToolTip="Back"
+                    AutomationProperties.Name="Back">
+                    <FontIcon Glyph="&#xE72B;" FontSize="14" />
+                </Button>
+                <Image Source="ms-appx:///Assets/icon.png" Width="18" Height="18" Margin="4,0,0,0" VerticalAlignment="Center" />
+                <TextBlock
+                    x:Name="AppTitle"
+                    Text="Koda"
+                    Margin="8,0,0,0"
+                    VerticalAlignment="Center"
+                    Style="{ThemeResource CaptionTextBlockStyle}" />
+            </StackPanel>
+
+            <AutoSuggestBox
+                x:Name="TitleSearch"
+                Grid.Column="3"
+                Width="420"
+                VerticalAlignment="Center"
+                PlaceholderText="Search songs, albums, artists"
+                QueryIcon="Find"
+                TextChanged="OnSearchTextChanged"
+                QuerySubmitted="OnSearchSubmitted"
+                SizeChanged="OnTitleBarPartsChanged"
+                AutomationProperties.Name="Search YouTube Music" />
+        </Grid>
+
+        <muxc:NavigationView
+            x:Name="Nav"
+            Grid.Row="1"
+            PaneDisplayMode="LeftCompact"
+            CompactPaneLength="64"
+            IsBackButtonVisible="Collapsed"
+            IsPaneToggleButtonVisible="False"
+            IsSettingsVisible="True"
+            IsTitleBarAutoPaddingEnabled="False"
+            SelectionChanged="OnNavSelectionChanged">
+            <muxc:NavigationView.MenuItems>
+                <muxc:NavigationViewItem Content="Home" Tag="home" ToolTipService.ToolTip="Home">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE80F;" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
+                <muxc:NavigationViewItem Content="Search" Tag="search" ToolTipService.ToolTip="Search">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE721;" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
+                <muxc:NavigationViewItem Content="Library" Tag="library" ToolTipService.ToolTip="Library">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8F1;" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
+            </muxc:NavigationView.MenuItems>
+
+            <Grid>
+                <Frame x:Name="ContentFrame" />
+                <!-- Non-blocking notes and faults: never a dialog. -->
+                <muxc:InfoBar
+                    x:Name="StatusRibbon"
+                    MaxWidth="640"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Bottom"
+                    Margin="0,0,0,12"
+                    IsOpen="False"
+                    IsClosable="True"
+                    CloseButtonClick="OnStatusClosed" />
+            </Grid>
+        </muxc:NavigationView>
+
+        <!-- Player bar on the window's Mica, a hairline above it:
+             now playing (left) | transport over the scrubber (center) | volume (right). -->
+        <Grid
+            x:Name="PlayerBar"
+            Grid.Row="2"
+            Height="84"
+            Padding="12,0"
+            ColumnSpacing="16"
+            SizeChanged="OnPlayerBarSizeChanged">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MinWidth="200" />
+                <ColumnDefinition Width="2*" MaxWidth="620" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Border Grid.ColumnSpan="3" Height="1" Margin="-12,0" VerticalAlignment="Top" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+            <Grid ColumnSpacing="12" VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="56" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Border Width="56" Height="56" CornerRadius="8" Background="{ThemeResource SubtleFillColorSecondaryBrush}" Tapped="OnNowPlayingTapped" ToolTipService.ToolTip="Now Playing">
+                    <Grid>
+                        <FontIcon x:Name="CoverGlyph" Glyph="&#xE8D6;" FontSize="18" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                        <Image x:Name="CoverImage" helpers:Art.Pixels="56" Stretch="UniformToFill" />
+                    </Grid>
+                </Border>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                    <TextBlock
+                        x:Name="TrackTitleText"
+                        Text="Nothing playing"
+                        Style="{ThemeResource BodyStrongTextBlockStyle}"
+                        TextTrimming="CharacterEllipsis"
+                        TextWrapping="NoWrap"
+                        Tapped="OnNowPlayingTapped"
+                        AutomationProperties.Name="Track title" />
+                    <TextBlock
+                        x:Name="TrackArtistText"
+                        Style="{ThemeResource CaptionTextBlockStyle}"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        TextTrimming="CharacterEllipsis"
+                        TextWrapping="NoWrap"
+                        Tapped="OnArtistTapped"
+                        AutomationProperties.Name="Track artist" />
+                </StackPanel>
+                <Button
+                    x:Name="LikeButton"
+                    Grid.Column="2"
+                    Width="36"
+                    Height="36"
+                    Padding="0"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Visibility="Collapsed"
+                    Click="OnLikeClick"
+                    ToolTipService.ToolTip="Add to Liked"
+                    AutomationProperties.Name="Add to Liked">
+                    <FontIcon x:Name="LikeIcon" Glyph="&#xEB51;" FontSize="16" />
+                </Button>
+            </Grid>
+
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
+                    <ToggleButton
+                        x:Name="ShuffleButton"
+                        Width="36"
+                        Height="36"
+                        Padding="0"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        IsEnabled="False"
+                        Click="OnShuffleClick"
+                        ToolTipService.ToolTip="Shuffle"
+                        AutomationProperties.Name="Shuffle">
+                        <FontIcon Glyph="&#xE8B1;" FontSize="14" />
+                    </ToggleButton>
+                    <Button
+                        x:Name="PreviousButton"
+                        Width="36"
+                        Height="36"
+                        Padding="0"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        IsEnabled="False"
+                        Click="OnPrevClick"
+                        ToolTipService.ToolTip="Previous"
+                        AutomationProperties.Name="Previous">
+                        <FontIcon Glyph="&#xE892;" FontSize="16" />
+                    </Button>
+                    <Button
+                        x:Name="PlayPauseButton"
+                        Width="40"
+                        Height="40"
+                        Padding="0"
+                        CornerRadius="20"
+                        IsEnabled="False"
+                        Style="{ThemeResource AccentButtonStyle}"
+                        Click="OnPlayPauseClick"
+                        ToolTipService.ToolTip="Play (Space)"
+                        AutomationProperties.Name="Play">
+                        <Grid>
+                            <FontIcon x:Name="PlayPauseIcon" Glyph="&#xF5B0;" FontSize="16" />
+                            <ProgressRing x:Name="BarLoading" Width="20" Height="20" IsActive="False" Visibility="Collapsed" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                        </Grid>
+                    </Button>
+                    <Button
+                        x:Name="NextButton"
+                        Width="36"
+                        Height="36"
+                        Padding="0"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        IsEnabled="False"
+                        Click="OnNextClick"
+                        ToolTipService.ToolTip="Next"
+                        AutomationProperties.Name="Next">
+                        <FontIcon Glyph="&#xE893;" FontSize="16" />
+                    </Button>
+                    <ToggleButton
+                        x:Name="RepeatButton"
+                        Width="36"
+                        Height="36"
+                        Padding="0"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        IsEnabled="False"
+                        Click="OnRepeatClick"
+                        ToolTipService.ToolTip="Repeat"
+                        AutomationProperties.Name="Repeat">
+                        <FontIcon x:Name="RepeatIcon" Glyph="&#xE8EE;" FontSize="14" />
+                    </ToggleButton>
+                </StackPanel>
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="40" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="40" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="ElapsedText" VerticalAlignment="Center" TextAlignment="Right" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <Slider
+                        x:Name="Scrubber"
+                        Grid.Column="1"
+                        Minimum="0"
+                        Maximum="1"
+                        IsEnabled="False"
+                        IsThumbToolTipEnabled="False"
+                        VerticalAlignment="Center"
+                        AutomationProperties.Name="Playback position" />
+                    <TextBlock x:Name="TotalText" Grid.Column="2" VerticalAlignment="Center" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </Grid>
+            </StackPanel>
+
+            <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="4">
+                <Button
+                    x:Name="QueueButton"
+                    Width="36"
+                    Height="36"
+                    Padding="0"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    IsEnabled="False"
+                    Click="OnQueueClick"
+                    ToolTipService.ToolTip="Queue"
+                    AutomationProperties.Name="Queue">
+                    <FontIcon Glyph="&#xE8FD;" FontSize="16" />
+                </Button>
+                <Button
+                    x:Name="MuteButton"
+                    Width="36"
+                    Height="36"
+                    Padding="0"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Click="OnMuteClick"
+                    ToolTipService.ToolTip="Mute"
+                    AutomationProperties.Name="Mute">
+                    <FontIcon x:Name="MuteIcon" Glyph="&#xE767;" FontSize="16" />
+                </Button>
+                <Slider
+                    x:Name="VolumeSlider"
+                    Width="110"
+                    VerticalAlignment="Center"
+                    Minimum="0"
+                    Maximum="100"
+                    Value="100"
+                    ValueChanged="OnVolumeChanged"
+                    AutomationProperties.Name="Volume" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

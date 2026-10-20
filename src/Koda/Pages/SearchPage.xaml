@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Koda.Pages.SearchPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Koda.Controls"
+    xmlns:helpers="using:Koda.Helpers"
+    NavigationCacheMode="Enabled">
+    <Grid Padding="26,16,26,0" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="Heading" Text="Search" Style="{ThemeResource TitleTextBlockStyle}" TextTrimming="CharacterEllipsis" />
+
+        <SelectorBar x:Name="Filters" Grid.Row="1" Visibility="Collapsed" SelectionChanged="OnFilterChanged">
+            <SelectorBarItem Text="All" Tag="all" IsSelected="True" />
+            <SelectorBarItem Text="Songs" Tag="songs" />
+            <SelectorBarItem Text="Albums" Tag="albums" />
+            <SelectorBarItem Text="Artists" Tag="artists" />
+            <SelectorBarItem Text="Playlists" Tag="playlists" />
+        </SelectorBar>
+
+        <!-- Before any search: recent searches, else a quiet hint. -->
+        <ScrollViewer x:Name="HistoryScroll" Grid.Row="2" Margin="-26,0" Padding="26,0">
+        <StackPanel x:Name="HistoryPanel" Spacing="12" Padding="0,0,0,24">
+            <Grid x:Name="HistoryHeader">
+                <TextBlock Text="Recent searches" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                <HyperlinkButton HorizontalAlignment="Right" Content="Clear" Click="OnClearHistoryClick" />
+            </Grid>
+            <ItemsControl x:Name="HistoryChips">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <VariableSizedWrapGrid Orientation="Horizontal" ItemHeight="40" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Button Content="{Binding}" Click="OnHistoryClick" CornerRadius="16" Padding="14,6" Margin="0,0,8,8" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock
+                x:Name="Hint"
+                Text="Find songs, albums, artists and playlists from YouTube Music. Press Ctrl+F from anywhere."
+                Style="{ThemeResource BodyTextBlockStyle}"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                TextWrapping="Wrap" />
+
+            <!-- Moods and genres live here, as tiles (iOS sibling: Home leads with what is yours). -->
+            <TextBlock x:Name="MoodsHeader" Text="Moods &amp; genres" Margin="0,16,0,0" Style="{ThemeResource SubtitleTextBlockStyle}" Visibility="Collapsed" />
+            <ItemsControl x:Name="MoodTiles">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <ItemsWrapGrid Orientation="Horizontal" ItemWidth="196" ItemHeight="64" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Button
+                            Margin="0,0,8,8"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Stretch"
+                            HorizontalContentAlignment="Left"
+                            Padding="16,0"
+                            CornerRadius="12"
+                            Click="OnMoodClick">
+                            <TextBlock Text="{Binding Title}" Style="{ThemeResource BodyStrongTextBlockStyle}" TextTrimming="CharacterEllipsis" />
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+        </ScrollViewer>
+
+        <!-- All results: the top result beside its songs, then each kind. -->
+        <ScrollViewer x:Name="AllScroll" Grid.Row="2" Visibility="Collapsed" Margin="-26,0" Padding="26,0">
+            <StackPanel Spacing="28" Padding="0,4,0,32">
+                <Grid x:Name="TopArea" ColumnSpacing="24" SizeChanged="OnTopAreaSizeChanged">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition x:Name="TopCardColumn" Width="2*" />
+                        <ColumnDefinition x:Name="TopSongsColumn" Width="3*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel x:Name="TopSection" Spacing="10">
+                        <TextBlock Text="Top result" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                        <Button
+                            x:Name="TopCard"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Stretch"
+                            Padding="16"
+                            CornerRadius="12"
+                            Click="OnTopCardClick">
+                            <StackPanel Spacing="12">
+                                <Border x:Name="TopArtFrame" Width="112" Height="112" HorizontalAlignment="Left" CornerRadius="12" Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                                    <Image x:Name="TopArt" helpers:Art.Pixels="112" Stretch="UniformToFill" />
+                                </Border>
+                                <StackPanel Spacing="2">
+                                    <TextBlock x:Name="TopTitle" Style="{ThemeResource SubtitleTextBlockStyle}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                    <TextBlock x:Name="TopDetail" Style="{ThemeResource BodyTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                    <StackPanel x:Name="TopSongsSection" Grid.Column="1" Spacing="10">
+                        <TextBlock Text="Songs" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                        <ListView
+                            x:Name="TopSongsList"
+                            Margin="-12,0"
+                            SelectionMode="None"
+                            IsItemClickEnabled="True"
+                            ItemClick="OnSongClick"
+                            ItemContainerStyle="{StaticResource CatalogRowStyle}"
+                            ItemTemplate="{StaticResource SongRowTemplate}" />
+                        <HyperlinkButton x:Name="AllSongsLink" Content="Show all songs" Click="OnShowAllSongs" Margin="-12,0,0,0" />
+                    </StackPanel>
+                </Grid>
+
+                <controls:ShelvesView x:Name="KindShelves" />
+
+                <StackPanel x:Name="VideosSection" Spacing="10">
+                    <TextBlock Text="Videos" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                    <ListView
+                        x:Name="VideosList"
+                        Margin="-12,0"
+                        SelectionMode="None"
+                        IsItemClickEnabled="True"
+                        ItemClick="OnSongClick"
+                        ItemContainerStyle="{StaticResource CatalogRowStyle}"
+                        ItemTemplate="{StaticResource SongRowTemplate}" />
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- One kind, as a full catalog list. -->
+        <ListView
+            x:Name="FilterList"
+            Grid.Row="2"
+            Margin="-12,0"
+            Padding="0,0,0,24"
+            Visibility="Collapsed"
+            SelectionMode="None"
+            IsItemClickEnabled="True"
+            ItemClick="OnFilterItemClick"
+            ItemContainerStyle="{StaticResource CatalogRowStyle}" />
+
+        <ContentPresenter x:Name="SkeletonHost" Grid.Row="2" />
+        <controls:ErrorState x:Name="Error" Grid.Row="2" Visibility="Collapsed" />
+    </Grid>
+</Page>

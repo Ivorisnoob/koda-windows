@@ -1,0 +1,84 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Koda for Windows: WinUI 3, unpackaged. Scaffold phase; see docs\windows.md for the stack decision
+       (Windows App SDK 2.5.1 stable, TFM net10.0-windows, Windows 11 min 10.0.22000.0, CLI-first local loop). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.22000.0</TargetPlatformMinVersion>
+    <SupportedOSPlatformVersion>10.0.22000.0</SupportedOSPlatformVersion>
+    <RootNamespace>Koda</RootNamespace>
+    <AssemblyName>Koda</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
+    <Platforms>x86;x64;ARM64</Platforms>
+    <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
+    <UseWinUI>true</UseWinUI>
+    <!-- Unpackaged by design: the app runs straight from the build output, no install, no runtime setup. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <!-- Carry the Windows App SDK runtime inside the app so unpackaged launch needs no runtime install. -->
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+  </ItemGroup>
+
+  <!-- The shell is wired to the engine. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Koda.Core\Koda.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\icon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\icon.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- Packaging: the MSIX identity (manifest + tile assets) is only wired when the
+       packaging tooling is on, so the unpackaged dev loop stays as it is. -->
+  <ItemGroup Condition="'$(EnableMsixTooling)'=='true'">
+    <AppxManifest Include="Package.appxmanifest" />
+    <Content Include="Assets\StoreLogo.png" />
+    <Content Include="Assets\Square44x44Logo.png" />
+    <Content Include="Assets\Square150x150Logo.png" />
+    <Content Include="Assets\Wide310x150Logo.png" />
+    <Content Include="Assets\SplashScreen.png" />
+    <Content Include="Assets\LockScreenLogo.png" />
+  </ItemGroup>
+
+  <!-- The XAML compiler marks the compiled .xbf files "copy to output" only, so a
+       published unpackaged build ships without them and the app cannot find its own
+       XAML at runtime ("Cannot locate resource from 'ms-appx:///MainWindow.xaml'").
+       The app's resource index (Koda.pri) carries the merged WinAppSDK theme
+       resources for the same reason. Both go into the publish set as well. -->
+  <Target Name="KodaIncludeCompiledXamlInPublish"
+          AfterTargets="AddProcessedXamlFilesToCopyLocal"
+          BeforeTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <_KodaCompiledXaml Include="@(_ProcessedXamlFilesToCopyLocalWithTargetPath)">
+        <PublishRelativePath>%(TargetPath)</PublishRelativePath>
+      </_KodaCompiledXaml>
+      <ResolvedFileToPublish Include="@(_KodaCompiledXaml)">
+        <RelativePath>%(PublishRelativePath)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
+  <Target Name="KodaIncludeAppPriInPublish" BeforeTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <_KodaAppPri Include="$(OutDir)$(TargetName).pri" Condition="Exists('$(OutDir)$(TargetName).pri')" />
+      <ResolvedFileToPublish Include="@(_KodaAppPri)">
+        <RelativePath>$(TargetName).pri</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
+</Project>

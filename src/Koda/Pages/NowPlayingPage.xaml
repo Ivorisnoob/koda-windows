@@ -1,0 +1,295 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Koda.Pages.NowPlayingPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:helpers="using:Koda.Helpers"
+    RequestedTheme="Dark">
+    <Page.Resources>
+        <!-- The cover breathes back when paused, like a record lifted off (Mac sibling). -->
+        <Storyboard x:Name="CoverIn">
+            <DoubleAnimation Storyboard.TargetName="CoverScale" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.45">
+                <DoubleAnimation.EasingFunction><ElasticEase Oscillations="1" Springiness="6" EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+            <DoubleAnimation Storyboard.TargetName="CoverScale" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.45">
+                <DoubleAnimation.EasingFunction><ElasticEase Oscillations="1" Springiness="6" EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
+        <Storyboard x:Name="CoverOut">
+            <DoubleAnimation Storyboard.TargetName="CoverScale" Storyboard.TargetProperty="ScaleX" To="0.86" Duration="0:0:0.4">
+                <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+            <DoubleAnimation Storyboard.TargetName="CoverScale" Storyboard.TargetProperty="ScaleY" To="0.86" Duration="0:0:0.4">
+                <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
+        <!-- The background drifts slowly while music plays; it holds still when paused. -->
+        <Storyboard x:Name="Drift" RepeatBehavior="Forever" AutoReverse="True">
+            <DoubleAnimation Storyboard.TargetName="BlobA" Storyboard.TargetProperty="(UIElement.RenderTransform).(CompositeTransform.TranslateX)" From="-80" To="120" Duration="0:0:14" />
+            <DoubleAnimation Storyboard.TargetName="BlobA" Storyboard.TargetProperty="(UIElement.RenderTransform).(CompositeTransform.TranslateY)" From="-40" To="90" Duration="0:0:11" />
+            <DoubleAnimation Storyboard.TargetName="BlobB" Storyboard.TargetProperty="(UIElement.RenderTransform).(CompositeTransform.TranslateX)" From="100" To="-140" Duration="0:0:17" />
+            <DoubleAnimation Storyboard.TargetName="BlobB" Storyboard.TargetProperty="(UIElement.RenderTransform).(CompositeTransform.TranslateY)" From="60" To="-80" Duration="0:0:13" />
+        </Storyboard>
+
+        <Style x:Key="PlayerGlyphButton" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="CornerRadius" Value="24" />
+        </Style>
+        <Style x:Key="PillToggle" TargetType="ToggleButton" BasedOn="{StaticResource DefaultToggleButtonStyle}">
+            <Setter Property="CornerRadius" Value="20" />
+            <Setter Property="Height" Value="40" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+        </Style>
+    </Page.Resources>
+
+    <Grid x:Name="Root" SizeChanged="OnRootSizeChanged">
+        <!-- The cover itself, blurred and darkened, is the background, so it always matches the
+             song; the palette's two blooms drift over it as a soft tint, only once it is read. -->
+        <Grid x:Name="Mesh" Background="#FF141416">
+            <!-- Oversized by margins (set with the page size), never a RenderTransform: an
+                 element with one may not have the fade-in Art gives every image. -->
+            <Image x:Name="BackdropArt" helpers:Art.Soft="True" Stretch="UniformToFill" />
+            <Rectangle Fill="#8C000000" />
+            <Rectangle x:Name="BlobA" RenderTransformOrigin="0.5,0.5" Opacity="0">
+                <Rectangle.RenderTransform><CompositeTransform /></Rectangle.RenderTransform>
+                <Rectangle.Fill>
+                    <RadialGradientBrush Center="0.28,0.25" RadiusX="0.55" RadiusY="0.55" GradientOrigin="0.28,0.25">
+                        <GradientStop x:Name="BlobAColor" Color="#00000000" Offset="0" />
+                        <GradientStop x:Name="BlobAFade" Color="#00000000" Offset="1" />
+                    </RadialGradientBrush>
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle x:Name="BlobB" RenderTransformOrigin="0.5,0.5" Opacity="0">
+                <Rectangle.RenderTransform><CompositeTransform /></Rectangle.RenderTransform>
+                <Rectangle.Fill>
+                    <RadialGradientBrush Center="0.75,0.78" RadiusX="0.6" RadiusY="0.6" GradientOrigin="0.75,0.78">
+                        <GradientStop x:Name="BlobBColor" Color="#00000000" Offset="0" />
+                        <GradientStop x:Name="BlobBFade" Color="#00000000" Offset="1" />
+                    </RadialGradientBrush>
+                </Rectangle.Fill>
+            </Rectangle>
+        </Grid>
+
+        <Grid x:Name="Layout" Padding="40,12,40,20" ColumnSpacing="64">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="PlayerColumn" Width="*" />
+                <ColumnDefinition x:Name="PanelColumn" Width="0" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Top bar: close, and the song's menu. -->
+            <Grid Grid.ColumnSpan="2" Height="48">
+                <Button Style="{StaticResource PlayerGlyphButton}" Width="44" Height="44" Click="OnCloseClick" ToolTipService.ToolTip="Close (Esc)" AutomationProperties.Name="Close Now Playing">
+                    <FontIcon Glyph="&#xE70D;" FontSize="16" />
+                </Button>
+                <Button x:Name="MoreButton" Style="{StaticResource PlayerGlyphButton}" Width="44" Height="44" HorizontalAlignment="Right" Click="OnMoreClick" ToolTipService.ToolTip="More" AutomationProperties.Name="More">
+                    <FontIcon Glyph="&#xE712;" FontSize="16" />
+                </Button>
+            </Grid>
+
+            <!-- The player column: cover (or, narrow with the queue open, a compact header), lines, controls. -->
+            <Grid x:Name="PlayerPanel" Grid.Row="1" MaxWidth="460" RowSpacing="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition x:Name="CoverRow" Height="*" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition x:Name="NarrowQueueRow" Height="0" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Viewbox x:Name="CoverBox" Stretch="Uniform" StretchDirection="Both" Margin="0,8,0,20" VerticalAlignment="Center">
+                    <Grid x:Name="CoverHost" Width="460" Height="460" RenderTransformOrigin="0.5,0.5">
+                        <Grid.RenderTransform><ScaleTransform x:Name="CoverScale" ScaleX="1" ScaleY="1" /></Grid.RenderTransform>
+                        <Border CornerRadius="18" Background="#33FFFFFF">
+                            <Grid>
+                                <FontIcon Glyph="&#xE8D6;" FontSize="72" Foreground="#80FFFFFF" />
+                                <Image x:Name="Cover" helpers:Art.Pixels="460" Stretch="UniformToFill" />
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </Viewbox>
+
+                <StackPanel Grid.Row="1" Spacing="14">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition x:Name="CompactCoverColumn" Width="0" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Border x:Name="CompactCover" Width="64" Height="64" CornerRadius="8" Background="#33FFFFFF" Visibility="Collapsed">
+                            <Image x:Name="CompactCoverImage" helpers:Art.Pixels="64" Stretch="UniformToFill" />
+                        </Border>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="0">
+                            <TextBlock x:Name="TitleText" FontSize="22" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                            <HyperlinkButton x:Name="ArtistLink" Padding="0" Foreground="#B3FFFFFF" FontSize="17" Click="OnArtistClick" />
+                        </StackPanel>
+                        <Button x:Name="LikeButton" Grid.Column="2" Style="{StaticResource PlayerGlyphButton}" Width="44" Height="44" Click="OnLikeClick">
+                            <FontIcon x:Name="LikeIcon" Glyph="&#xEB51;" FontSize="20" />
+                        </Button>
+                    </Grid>
+
+                    <Grid x:Name="FailureBanner" Padding="12,10" CornerRadius="14" Background="#26FFFFFF" ColumnSpacing="12" Visibility="Collapsed">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <FontIcon Glyph="&#xE7BA;" FontSize="16" Foreground="#FFFFD54F" />
+                        <TextBlock x:Name="FailureText" Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                        <Button Grid.Column="2" Content="Retry" Click="OnRetryClick" />
+                    </Grid>
+
+                    <!-- Scrubber: elapsed and remaining either side. -->
+                    <StackPanel Spacing="0">
+                        <Slider x:Name="Scrubber" Minimum="0" Maximum="1" IsThumbToolTipEnabled="False" AutomationProperties.Name="Position" />
+                        <Grid>
+                            <TextBlock x:Name="ElapsedText" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="#B3FFFFFF" />
+                            <TextBlock x:Name="RemainingText" HorizontalAlignment="Right" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="#B3FFFFFF" />
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- Transport in thirds: previous, the big play/pause, next. -->
+                    <Grid Height="72">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button Style="{StaticResource PlayerGlyphButton}" Width="64" Height="64" CornerRadius="32" HorizontalAlignment="Center" Click="OnPrevClick" ToolTipService.ToolTip="Previous (Ctrl+Left)" AutomationProperties.Name="Previous">
+                            <FontIcon Glyph="&#xF8AC;" FontSize="26" />
+                        </Button>
+                        <Button x:Name="PlayButton" Grid.Column="1" Width="68" Height="68" CornerRadius="34" Padding="0" HorizontalAlignment="Center" Background="White" Foreground="Black" BorderThickness="0" Click="OnPlayClick" AutomationProperties.Name="Play">
+                            <Grid>
+                                <FontIcon x:Name="PlayIcon" Glyph="&#xF5B0;" FontSize="26" Foreground="Black" />
+                                <ProgressRing x:Name="LoadingRing" Width="34" Height="34" Foreground="Black" IsActive="False" Visibility="Collapsed" />
+                            </Grid>
+                        </Button>
+                        <Button Grid.Column="2" Style="{StaticResource PlayerGlyphButton}" Width="64" Height="64" CornerRadius="32" HorizontalAlignment="Center" Click="OnNextClick" ToolTipService.ToolTip="Next (Ctrl+Right)" AutomationProperties.Name="Next">
+                            <FontIcon Glyph="&#xF8AD;" FontSize="26" />
+                        </Button>
+                    </Grid>
+
+                    <!-- Volume, quiet to loud. -->
+                    <Grid ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <FontIcon Glyph="&#xE992;" FontSize="14" Foreground="#B3FFFFFF" VerticalAlignment="Center" />
+                        <Slider x:Name="Volume" Grid.Column="1" Minimum="0" Maximum="100" ValueChanged="OnVolumeChanged" AutomationProperties.Name="Volume" />
+                        <FontIcon Grid.Column="2" Glyph="&#xE995;" FontSize="14" Foreground="#B3FFFFFF" VerticalAlignment="Center" />
+                    </Grid>
+                </StackPanel>
+
+                <!-- Narrow with the queue open: the list takes the cover's place. -->
+                <ContentPresenter x:Name="NarrowQueueHost" Grid.Row="2" Margin="0,12,0,0" />
+
+                <!-- Bottom bar: the queue toggle (lyrics land here when they are ported). -->
+                <Grid Grid.Row="3" Margin="0,10,0,0">
+                    <ToggleButton
+                        x:Name="QueueToggle"
+                        HorizontalAlignment="Right"
+                        Width="52"
+                        Height="40"
+                        CornerRadius="20"
+                        Click="OnQueueToggleClick"
+                        ToolTipService.ToolTip="Queue"
+                        AutomationProperties.Name="Queue">
+                        <FontIcon Glyph="&#xE8FD;" FontSize="16" />
+                    </ToggleButton>
+                </Grid>
+            </Grid>
+
+            <!-- The queue panel: modes, Up Next with Clear, the list. -->
+            <Grid x:Name="QueuePanel" Grid.Row="1" Grid.Column="1" MaxWidth="620" RowSpacing="12" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <ToggleButton x:Name="ShuffleToggle" Style="{StaticResource PillToggle}" Click="OnShuffleClick" ToolTipService.ToolTip="Shuffle">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE8B1;" FontSize="14" />
+                            <TextBlock Text="Shuffle" />
+                        </StackPanel>
+                    </ToggleButton>
+                    <ToggleButton x:Name="RepeatToggle" Grid.Column="1" Style="{StaticResource PillToggle}" Click="OnRepeatClick" ToolTipService.ToolTip="Repeat: off, all, one">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon x:Name="RepeatIcon" Glyph="&#xE8EE;" FontSize="14" />
+                            <TextBlock x:Name="RepeatText" Text="Repeat" />
+                        </StackPanel>
+                    </ToggleButton>
+                    <ToggleButton x:Name="AutoplayToggle" Grid.Column="2" Style="{StaticResource PillToggle}" Click="OnAutoplayClick" ToolTipService.ToolTip="When the queue ends, keep going with songs like the last one">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE895;" FontSize="14" />
+                            <TextBlock Text="Autoplay" />
+                        </StackPanel>
+                    </ToggleButton>
+                </Grid>
+                <Grid Grid.Row="1">
+                    <TextBlock x:Name="UpNextTitle" Text="Up Next" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <HyperlinkButton x:Name="ClearLink" HorizontalAlignment="Right" Content="Clear" Foreground="#B3FFFFFF" Click="OnClearClick" />
+                    <HyperlinkButton x:Name="UndoLink" HorizontalAlignment="Right" Content="Undo" Visibility="Collapsed" Click="OnUndoClick" />
+                </Grid>
+                <ListView
+                    x:Name="UpNext"
+                    Grid.Row="2"
+                    Margin="-12,0"
+                    SelectionMode="None"
+                    IsItemClickEnabled="True"
+                    CanDragItems="True"
+                    CanReorderItems="True"
+                    AllowDrop="True"
+                    ItemClick="OnUpNextClick"
+                    DragItemsStarting="OnDragStarting"
+                    DragItemsCompleted="OnDragCompleted"
+                    Loaded="OnUpNextLoaded"
+                    ItemContainerStyle="{StaticResource CatalogRowStyle}">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Height="56" ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="44" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Border Width="44" Height="44" CornerRadius="6" Background="#26FFFFFF">
+                                    <Image helpers:Art.Pixels="44" helpers:Art.Source="{Binding Song.Artwork}" Stretch="UniformToFill" />
+                                </Border>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                    <TextBlock Text="{Binding Song.Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                    <TextBlock Text="{Binding Song.ArtistLine}" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="#99FFFFFF" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{Binding Song.Duration, Converter={StaticResource SecondsText}}" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="#80FFFFFF" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                    <ListView.Footer>
+                        <StackPanel Padding="12,8,12,16" Spacing="8">
+                            <ContentPresenter x:Name="MoreSkeleton" />
+                            <TextBlock x:Name="EndNote" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="#99FFFFFF" TextWrapping="Wrap" Visibility="Collapsed" />
+                        </StackPanel>
+                    </ListView.Footer>
+                </ListView>
+            </Grid>
+        </Grid>
+
+        <StackPanel x:Name="Idle" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10" Visibility="Collapsed">
+            <FontIcon Glyph="&#xE8D6;" FontSize="40" />
+            <TextBlock Text="Nothing playing" HorizontalAlignment="Center" Style="{ThemeResource SubtitleTextBlockStyle}" />
+            <Button Content="Back" HorizontalAlignment="Center" Click="OnCloseClick" />
+        </StackPanel>
+    </Grid>
+</Page>

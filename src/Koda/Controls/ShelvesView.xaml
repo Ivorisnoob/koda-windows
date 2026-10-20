@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Koda.Controls.ShelvesView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ItemsControl x:Name="ShelfList">
+        <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+                <StackPanel Spacing="28" />
+            </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+            <DataTemplate>
+                <Grid RowSpacing="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel VerticalAlignment="Bottom" Margin="6,0,0,0">
+                        <TextBlock
+                            Text="{Binding Strapline}"
+                            Style="{ThemeResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Visibility="{Binding HasStrapline, Converter={StaticResource BoolToVisibility}}" />
+                        <TextBlock Text="{Binding Title}" Style="{ThemeResource SubtitleTextBlockStyle}" TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+
+                    <!-- Wheel scrolls the page; these step the shelf a screen at a time. -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Bottom">
+                        <Button Width="32" Height="32" Padding="0" Click="OnStepLeft" ToolTipService.ToolTip="Scroll left" AutomationProperties.Name="Scroll shelf left">
+                            <FontIcon Glyph="&#xE76B;" FontSize="12" />
+                        </Button>
+                        <Button Width="32" Height="32" Padding="0" Click="OnStepRight" ToolTipService.ToolTip="Scroll right" AutomationProperties.Name="Scroll shelf right">
+                            <FontIcon Glyph="&#xE76C;" FontSize="12" />
+                        </Button>
+                    </StackPanel>
+
+                    <ListView
+                        Grid.Row="1"
+                        Grid.ColumnSpan="2"
+                        ItemsSource="{Binding Cards}"
+                        ItemTemplateSelector="{StaticResource CardSelector}"
+                        ItemContainerStyle="{StaticResource CardItemStyle}"
+                        SelectionMode="None"
+                        IsItemClickEnabled="True"
+                        ItemClick="OnCardClick"
+                        Loaded="OnShelfLoaded"
+                        ScrollViewer.HorizontalScrollMode="Disabled"
+                        ScrollViewer.HorizontalScrollBarVisibility="Hidden"
+                        ScrollViewer.VerticalScrollMode="Disabled"
+                        ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                        ScrollViewer.IsHorizontalRailEnabled="True">
+                        <ListView.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsStackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ListView.ItemsPanel>
+                    </ListView>
+                </Grid>
+            </DataTemplate>
+        </ItemsControl.ItemTemplate>
+    </ItemsControl>
+</UserControl>

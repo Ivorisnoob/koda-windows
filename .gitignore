@@ -1,0 +1,28 @@
+# Build outputs
+bin/
+obj/
+artifacts/
+TestResults/
+*.binlog
+msbuild.log
+
+# IDE / user files
+.vs/
+*.user
+*.suo
+
+# Machine-local scratch: probes, throwaway downloads, probe tmp (gitignored, never committed)
+.scratchpad/
+
+# Local working notes: planning and machine-specific setup stay on this machine, not in the repo
+PLATFORM_PLAN.md
+KICKOFF.md
+CLAUDE.md
+env.ps1
+scripts/check-c-clean.ps1
+
+# Documentation: only the README is public for now. The engineering journals
+# (docs\), the product and design plans stay local until they are ready.
+docs/
+*.md
+!README.md

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Koda.Pages.MoodPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Koda.Controls">
+    <Grid>
+        <ScrollViewer>
+            <StackPanel Margin="26,16,26,32" Spacing="20">
+                <TextBlock x:Name="TitleText" Style="{ThemeResource TitleTextBlockStyle}" />
+                <controls:ShelvesView x:Name="Shelves" />
+                <ContentPresenter x:Name="SkeletonHost" />
+            </StackPanel>
+        </ScrollViewer>
+        <controls:ErrorState x:Name="Error" Visibility="Collapsed" />
+    </Grid>
+</Page>

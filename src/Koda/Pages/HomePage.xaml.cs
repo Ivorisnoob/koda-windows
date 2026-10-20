@@ -1,0 +1,408 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Threading.Tasks;
+using Koda.Core;
+using Koda.Helpers;
+using Koda.Playback;
+using Koda.Services;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Navigation;
+
+namespace Koda.Pages;
+
+/// <summary>
+/// Home, ported from the iOS/Mac HomeModel: the listener's own page first.
+/// Your Mix (radios of the top artists' favourite songs, woven by Taste) beside Quick
+/// picks (songs like the last one played), then Recently played, Your top artists,
+/// Charts, and YouTube Music's own shelves below. Someone new gets trending songs in
+/// both places ("Start Here"). The last Home is a snapshot on F:, shown at once on a
+/// cold start and refreshed in place; one under half an hour old is not refetched.
+/// </summary>
+public sealed partial class HomePage : Page
+{
+    private sealed record Mix(string[] Artists, Song[] Songs, bool IsPersonal);
+
+    private sealed record Saved(
+        Mix? Mix, Song[] Picks, bool PicksPersonal, PlaylistSummary[] Charts, Song[] Trending,
+        Shelf[] YouTube, Dictionary<string, Artwork> ArtistPhotos, DateTimeOffset LoadedAt);
+
+    private static string SnapshotPath => Path.Combine(App.DataDirectory, "home-snapshot.json");
+    private static readonly JsonSerializerOptions SnapshotJson = new() { PropertyNameCaseInsensitive = true };
+
+    private Saved? _state;
+    private bool _loading;
+    private int _pickCount = 12;
+
+    public HomePage()
+    {
+        InitializeComponent();
+        SongMenu.Attach(Picks, () => _state?.Picks ?? []);
+    }
+
+    protected override void OnNavigatedTo(NavigationEventArgs args)
+    {
+        base.OnNavigatedTo(args);
+        Greeting.Text = DateTime.Now.Hour switch
+        {
+            >= 5 and < 12 => "Good morning",
+            >= 12 and < 17 => "Good afternoon",
+            >= 17 and < 22 => "Good evening",
+            _ => "Up late",
+        };
+
+        _state ??= ReadSnapshot();
+        if (_state is not null)
+        {
+            Show(_state);
+        }
+
+        var fresh = _state is { } s && DateTimeOffset.Now - s.LoadedAt < TimeSpan.FromMinutes(30);
+        if (!fresh)
+        {
+            _ = RefreshAsync();
+        }
+    }
+
+    private void OnRefreshClick(object sender, RoutedEventArgs e)
+    {
+        EngineHost.Music.ClearPageCache();
+        _ = RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        _loading = true;
+        RefreshButton.IsEnabled = false;
+        var hadContent = _state is not null;
+        Error.Visibility = Visibility.Collapsed;
+        if (!hadContent)
+        {
+            MixSkeleton.Content = Skeletons.Breathe(Skeletons.Block(380, 300, 20));
+            PicksSkeleton.Content = Skeletons.Rows(4);
+            SkeletonHost.Content = Skeletons.Shelves(2);
+        }
+
+        var music = EngineHost.Music;
+        var library = App.Library;
+        var recent = library.Recent;
+        var taste = Taste.From(library);
+        try
+        {
+            var explore = Try(music.ExploreAsync());
+            var home = Try(music.HomeAsync());
+            var charts = Try(music.ChartPlaylistsAsync());
+            var picks = QuickPicksAsync(recent);
+            await Task.WhenAll(explore, home, charts, picks);
+            if (explore.Result is null && home.Result is null && picks.Result.Length == 0)
+            {
+                throw MusicException.Network("home");
+            }
+
+            var trending = Trending(explore.Result);
+            var youtube = (home.Result?.Shelves ?? []).Concat(
+                (explore.Result?.Shelves ?? []).Where(s => s.Title != "Trending")).ToArray();
+            var personal = picks.Result.Length > 0;
+            var state = new Saved(_state?.Mix, personal ? picks.Result : trending, personal, charts.Result ?? [],
+                trending, DedupeShelves(youtube), _state?.ArtistPhotos ?? [], DateTimeOffset.Now);
+            if (state.Mix is null && taste.IsEmpty && trending.Length > 0)
+            {
+                state = state with { Mix = StartHere(trending) };
+            }
+
+            _state = state;
+            Show(state);
+            ClearSkeletons();
+
+            // The mix and the artist photos come after the page is up.
+            var mix = await BuildMixAsync(taste, recent);
+            var photos = await ArtistPhotosAsync(state.ArtistPhotos);
+            _state = _state with
+            {
+                Mix = mix ?? _state.Mix ?? (trending.Length > 0 ? StartHere(trending) : null),
+                ArtistPhotos = photos,
+            };
+            Show(_state);
+            WriteSnapshot(_state);
+        }
+        catch (Exception error)
+        {
+            if (hadContent)
+            {
+                App.Shell?.Note($"Home didn't refresh. {Errors.Describe(error)}");
+            }
+            else
+            {
+                Error.ShowError(error, () => _ = RefreshAsync());
+            }
+        }
+        finally
+        {
+            ClearSkeletons();
+            RefreshButton.IsEnabled = true;
+            _loading = false;
+        }
+    }
+
+    private void ClearSkeletons()
+    {
+        MixSkeleton.Content = null;
+        PicksSkeleton.Content = null;
+        SkeletonHost.Content = null;
+    }
+
+    private static async Task<T?> Try<T>(Task<T> task) where T : class
+    {
+        try
+        {
+            return await task;
+        }
+        catch (MusicException)
+        {
+            return null;
+        }
+    }
+
+    // MARK: building
+
+    /// <summary>Songs like the last one played; with no history yet, nothing (trending fills in).</summary>
+    private static async Task<Song[]> QuickPicksAsync(Song[] recent)
+    {
+        if (recent.Length == 0)
+        {
+            return [];
+        }
+
+        try
+        {
+            var radio = await EngineHost.Music.RadioAsync(recent[0].Id);
+            return [.. radio.Songs.Where(s => s.Id != recent[0].Id).Take(20)];
+        }
+        catch (MusicException)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>Your Mix: a radio from each top artist's favourite song, woven together; the seeds
+    /// and the last few songs played are left out, so the mix is something to go on to.</summary>
+    private static async Task<Mix?> BuildMixAsync(Taste taste, Song[] recent)
+    {
+        if (taste.IsEmpty)
+        {
+            return null;
+        }
+
+        var radios = await Task.WhenAll(taste.Seeds.Select(async seed =>
+        {
+            try
+            {
+                return (await EngineHost.Music.RadioAsync(seed.Id)).Songs;
+            }
+            catch (MusicException)
+            {
+                return Array.Empty<Song>();
+            }
+        }));
+        var skip = taste.Seeds.Select(s => s.Id).Concat(recent.Take(10).Select(s => s.Id));
+        var songs = Taste.Weave(radios, skip);
+        return songs.Length == 0 ? null : new Mix([.. taste.Artists.Take(3)], songs, true);
+    }
+
+    private static Mix StartHere(Song[] trending) =>
+        new([.. trending.Select(Taste.LeadArtist).Distinct().Order().Take(3)], trending, false);
+
+    private static Song[] Trending(ShelfPage? explore) =>
+        explore?.Shelves.FirstOrDefault(s => s.Title == "Trending")?.Items
+            .OfType<MusicItem.SongRecord>().Select(s => s.Value).ToArray() ?? [];
+
+    private static Shelf[] DedupeShelves(Shelf[] shelves)
+    {
+        var seen = new HashSet<string>();
+        return [.. shelves.Where(s => seen.Add(s.Title))];
+    }
+
+    /// <summary>The listener's most-played artists that can be opened, strongest first.</summary>
+    private static ArtistRef[] TopArtists(int limit = 10)
+    {
+        var library = App.Library;
+        var refs = new Dictionary<string, ArtistRef>();
+        foreach (var stats in library.SongStats.Values)
+        {
+            if (stats.Song.Artists.FirstOrDefault() is { Id: not null } artist) refs[artist.Name] = artist;
+        }
+
+        return [.. Taste.From(library, maxSeeds: 0).Artists.Where(refs.ContainsKey).Select(n => refs[n]).Take(limit)];
+    }
+
+    private static async Task<Dictionary<string, Artwork>> ArtistPhotosAsync(Dictionary<string, Artwork> known)
+    {
+        var photos = new Dictionary<string, Artwork>(known);
+        var missing = TopArtists().Select(a => a.Id!).Where(id => !photos.ContainsKey(id)).ToArray();
+        var found = await Task.WhenAll(missing.Select(async id =>
+        {
+            try
+            {
+                return (id, (await EngineHost.Music.ArtistAsync(id)).Artist.Artwork);
+            }
+            catch (MusicException)
+            {
+                return (id, (Artwork?)null);
+            }
+        }));
+        foreach (var (id, art) in found)
+        {
+            if (art is not null) photos[id] = art;
+        }
+
+        return photos;
+    }
+
+    // MARK: drawing
+
+    private void Show(Saved state)
+    {
+        Error.Visibility = Visibility.Collapsed;
+        ShowMix(state.Mix);
+        PicksStrapline.Text = state.PicksPersonal ? "Start with these" : "Trending now";
+        PicksPanel.Visibility = state.Picks.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        Picks.ItemsSource = state.Picks.Take(_pickCount).ToArray();
+
+        var shelves = new List<ShelfView>();
+        var recent = App.Library.Recent;
+        if (recent.Length > 0)
+        {
+            shelves.Add(ShelfView.Of("Recently played", recent.Take(12).Select(s => (MusicItem)new MusicItem.SongRecord(s))));
+        }
+
+        var yours = TopArtists();
+        if (yours.Length >= 3)
+        {
+            shelves.Add(new ShelfView("Your top artists", "Based on your listening", [.. yours.Select(a => CardItem.From(
+                new MusicItem.ArtistRecord(new ArtistSummary(a.Id!, a.Name, null, state.ArtistPhotos.GetValueOrDefault(a.Id!)))) with { Subtitle = "" })]));
+        }
+
+        if (state.Charts.Length > 0)
+        {
+            shelves.Add(new ShelfView("Charts", "Global and near you", [.. state.Charts.Select(p => CardItem.From(new MusicItem.PlaylistRecord(p)))]));
+        }
+
+        shelves.AddRange(state.YouTube.Select(ShelfView.From));
+        Shelves.Shelves = shelves;
+    }
+
+    private void ShowMix(Mix? mix)
+    {
+        MixCard.Visibility = mix is null ? Visibility.Collapsed : Visibility.Visible;
+        if (mix is null)
+        {
+            return;
+        }
+
+        MixSkeleton.Content = null;
+        MixTitle.Text = mix.IsPersonal ? "Your Mix" : "Start Here";
+        MixArtists.Text = mix.Artists.Length switch
+        {
+            0 => $"{mix.Songs.Length} songs",
+            1 => $"With {mix.Artists[0]}",
+            2 => $"With {mix.Artists[0]} and {mix.Artists[1]}",
+            _ => $"With {mix.Artists[0]}, {mix.Artists[1]} and {mix.Artists[2]}",
+        };
+        var seen = new HashSet<string>();
+        var covers = mix.Songs.Select(s => s.Artwork).OfType<Artwork>().Where(a => seen.Add(a.Resized(120).ToString())).Take(3).ToArray();
+        MixCovers.ItemsSource = covers;
+        _ = TintMixAsync(covers);
+    }
+
+    /// <summary>The card in its covers' colours, darkened so white text holds.</summary>
+    private async Task TintMixAsync(Artwork[] covers)
+    {
+        var stops = new[] { MixStop0, MixStop1, MixStop2 };
+        for (var i = 0; i < Math.Min(3, covers.Length); i++)
+        {
+            if (await ArtAccent.FromAsync(covers[i]) is { } c)
+            {
+                stops[i].Color = Windows.UI.Color.FromArgb(255, (byte)(c.R * 0.72), (byte)(c.G * 0.72), (byte)(c.B * 0.72));
+            }
+        }
+    }
+
+    private void OnTopSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        // Mix beside the picks when there is room, above them when not.
+        var wide = e.NewSize.Width >= 900;
+        MixColumn.Width = wide ? new GridLength(380) : new GridLength(1, GridUnitType.Star);
+        Grid.SetColumn(PicksPanel, wide ? 1 : 0);
+        Grid.SetRow(PicksPanel, wide ? 0 : 1);
+        MixCard.MaxWidth = wide ? double.PositiveInfinity : 520;
+        MixCard.HorizontalAlignment = HorizontalAlignment.Stretch;
+
+        // Four rows, as many 280-wide columns as fit, at most three.
+        var room = wide ? e.NewSize.Width - 380 - 28 : e.NewSize.Width;
+        var count = Math.Clamp((int)(room / 284), 1, 3) * 4;
+        if (count != _pickCount)
+        {
+            _pickCount = count;
+            if (_state is { } state) Picks.ItemsSource = state.Picks.Take(_pickCount).ToArray();
+        }
+    }
+
+    private void OnPickClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is Song song && _state is { } state)
+        {
+            _ = PlaybackService.Instance.PlayNowAsync(song, state.Picks);
+        }
+    }
+
+    private void OnMixPlayClick(object sender, RoutedEventArgs e)
+    {
+        if (_state?.Mix is { Songs.Length: > 0 } mix) _ = PlaybackService.Instance.PlayNowAsync(mix.Songs[0], mix.Songs);
+    }
+
+    private void OnMixShuffleClick(object sender, RoutedEventArgs e)
+    {
+        if (_state?.Mix is { } mix) _ = PlaybackService.Instance.ShuffleAsync(mix.Songs);
+    }
+
+    // MARK: snapshot
+
+    private static Saved? ReadSnapshot()
+    {
+        try
+        {
+            var saved = File.Exists(SnapshotPath)
+                ? JsonSerializer.Deserialize<Saved>(File.ReadAllText(SnapshotPath), SnapshotJson)
+                : null;
+            // A snapshot from an older Home lacks these; it is ignored rather than half-drawn.
+            return saved is { Picks: not null, Charts: not null, Trending: not null, YouTube: not null, ArtistPhotos: not null }
+                ? saved
+                : null;
+        }
+        catch (Exception)
+        {
+            return null; // an old or damaged snapshot only costs the fast start
+        }
+    }
+
+    private static void WriteSnapshot(Saved state)
+    {
+        try
+        {
+            Directory.CreateDirectory(App.DataDirectory);
+            File.WriteAllText(SnapshotPath, JsonSerializer.Serialize(state, SnapshotJson));
+        }
+        catch (Exception)
+        {
+            // Next launch loads from the network instead.
+        }
+    }
+}

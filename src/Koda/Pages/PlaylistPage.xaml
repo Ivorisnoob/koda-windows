@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Koda.Pages.PlaylistPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Koda.Controls"
+    xmlns:helpers="using:Koda.Helpers">
+    <Grid>
+        <ListView
+            x:Name="Tracks"
+            Padding="14,0,14,32"
+            Visibility="Collapsed"
+            SelectionMode="None"
+            IsItemClickEnabled="True"
+            ItemClick="OnTrackClick"
+            Loaded="OnTracksLoaded"
+            ItemContainerStyle="{StaticResource CatalogRowStyle}"
+            ItemTemplate="{StaticResource TrackRowTemplate}">
+            <ListView.Header>
+                <StackPanel Padding="12,16,12,12" Spacing="20">
+                    <Grid ColumnSpacing="24">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Width="200" Height="200" CornerRadius="16" Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                            <Grid>
+                                <FontIcon Glyph="&#xE8FD;" FontSize="40" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                <Image x:Name="HeroArt" helpers:Art.Pixels="200" Stretch="UniformToFill" />
+                            </Grid>
+                        </Border>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Bottom" Spacing="6">
+                            <TextBlock x:Name="HeroTitle" Style="{ThemeResource TitleLargeTextBlockStyle}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="HeroAuthor" Style="{ThemeResource BodyStrongTextBlockStyle}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="HeroMeta" Style="{ThemeResource BodyTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,10,0,0">
+                                <Button Style="{ThemeResource AccentButtonStyle}" Click="OnPlayClick" Padding="18,7">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon Glyph="&#xF5B0;" FontSize="14" />
+                                        <TextBlock Text="Play" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Click="OnShuffleClick" Padding="18,7">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon Glyph="&#xE8B1;" FontSize="14" />
+                                        <TextBlock Text="Shuffle" />
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="SaveButton" Click="OnSaveClick" Padding="10,7" ToolTipService.ToolTip="Save to Library">
+                                    <FontIcon x:Name="SaveIcon" Glyph="&#xEB51;" FontSize="14" />
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
+                    <TextBlock
+                        x:Name="Description"
+                        Style="{ThemeResource BodyTextBlockStyle}"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        TextWrapping="Wrap"
+                        MaxLines="3"
+                        TextTrimming="CharacterEllipsis"
+                        Visibility="Collapsed" />
+                </StackPanel>
+            </ListView.Header>
+            <ListView.Footer>
+                <StackPanel Margin="0,0,0,8">
+                    <ContentPresenter x:Name="MoreSkeleton" />
+                    <StackPanel x:Name="MoreError" Orientation="Horizontal" Spacing="12" Margin="12,12" Visibility="Collapsed">
+                        <TextBlock Text="The rest of this playlist didn't load." VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <Button Content="Try again" Click="OnMoreRetryClick" />
+                    </StackPanel>
+                </StackPanel>
+            </ListView.Footer>
+        </ListView>
+
+        <ContentPresenter x:Name="SkeletonHost" Margin="26,16,26,0" />
+        <controls:ErrorState x:Name="Error" Visibility="Collapsed" />
+    </Grid>
+</Page>

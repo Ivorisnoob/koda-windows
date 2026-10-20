@@ -1,0 +1,22 @@
+# Windows-only project: check out with Windows line endings, keep the repository
+# itself in normalized (LF) form so diffs stay stable.
+* text=auto eol=crlf
+
+*.md text eol=crlf
+*.cs text eol=crlf
+*.xaml text eol=crlf
+*.csproj text eol=crlf
+*.slnx text eol=crlf
+*.xml text eol=crlf
+*.json text eol=crlf
+*.yml text eol=crlf
+*.ps1 text eol=crlf
+
+*.png binary
+*.ico binary
+*.jpg binary
+*.webp binary
+*.zip binary
+*.msix binary
+*.pfx binary
+*.cer binary
