@@ -62,6 +62,7 @@ internal sealed class LyricsPanel : IDisposable
     private readonly DispatcherQueueTimer _frame;
 
     private readonly List<Row> _rows = [];
+    private readonly List<LyricLine> _lyricLines = [];
     private Row? _current;
     private double _offset;
     private bool _userScrolled;
@@ -107,9 +108,22 @@ internal sealed class LyricsPanel : IDisposable
         _tween.Tick += OnTweenTick;
 
         // The words: they fill while they are sung, so the panel keeps a frame timer.
+        // The position is read live, every frame: the app's own tick only comes
+        // twice a second, and a word that fills in half-second steps reads as a
+        // sequence of keyframes, not as a word being sung.
         _frame = queue.CreateTimer();
-        _frame.Interval = TimeSpan.FromMilliseconds(33);
-        _frame.Tick += (_, _) => Paint();
+        _frame.Interval = TimeSpan.FromMilliseconds(16);
+        _frame.Tick += (_, _) =>
+        {
+            if (PositionSource is { } source)
+            {
+                SetPosition(source());
+            }
+
+            // Following the song here, not on the app's twice-a-second tick: the line
+            // being sung changes the moment the song reaches it.
+            Follow();
+        };
 
         // The words are laid out in rows that fit the panel, so a line breaks where it should.
         _scroll.SizeChanged += (_, args) =>
@@ -126,6 +140,9 @@ internal sealed class LyricsPanel : IDisposable
 
     /// <summary>Called when a line is tapped: the song jumps to that line.</summary>
     public Action<double>? Seek { get; set; }
+
+    /// <summary>Where the song is, read live: the panel asks every frame.</summary>
+    public Func<double>? PositionSource { get; set; }
 
     /// <summary>The listener's correction for this song, in seconds.</summary>
     public double Offset
@@ -150,6 +167,7 @@ internal sealed class LyricsPanel : IDisposable
         _tween.Stop();
         _lines.Children.Clear();
         _rows.Clear();
+        _lyricLines.Clear();
         _current = null;
         _loaded = lyrics is { IsSynced: true };
 
@@ -211,6 +229,7 @@ internal sealed class LyricsPanel : IDisposable
 
             _lines.Children.Add(host);
             _rows.Add(row);
+            _lyricLines.Add(line);
 
             // A long silence between two lines shows three dots that fill until the next.
             var next = index + 1 < lyrics.Lines.Count ? lyrics.Lines[index + 1] : null;
@@ -234,9 +253,7 @@ internal sealed class LyricsPanel : IDisposable
         }
 
         Reflow();
-    }
-
-    /// <summary>One word: its element, the mask it fills through, and its rise.</summary>
+    }    /// <summary>One word: its element, the mask it fills through, and its rise.</summary>
     private Word MakeWord(LyricWord word, double fontSize)
     {
         var fill = new LinearGradientBrush
@@ -318,9 +335,11 @@ internal sealed class LyricsPanel : IDisposable
         }
     }
 
-    /// <summary>Puts the panel on screen with a short fade.</summary>
+    /// <summary>Puts the panel on screen with a short fade, and starts it following the song.</summary>
     public void PlayEntrance()
     {
+        _frame.Start();
+
         // The fade is the app's own pattern: a storyboard on the element's Opacity.
         // (A transform created in code cannot be a storyboard's target - only a
         // named one, declared in XAML, can.)
@@ -340,6 +359,9 @@ internal sealed class LyricsPanel : IDisposable
         storyboard.Begin();
     }
 
+    /// <summary>The panel is closed: it stops reading the song.</summary>
+    public void Pause() => _frame.Stop();
+
     /// <summary>Follows the song: lights the line being sung and glides to it.</summary>
     public void Follow()
     {
@@ -348,7 +370,7 @@ internal sealed class LyricsPanel : IDisposable
             return;
         }
 
-        var index = Lyrics.IndexOf(_position, _rows.Select(r => r.Line).ToList()) ?? -1;
+        var index = Lyrics.IndexOf(_position, _lyricLines) ?? -1;
         if (index < 0 || index >= _rows.Count)
         {
             return;

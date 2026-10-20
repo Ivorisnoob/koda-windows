@@ -96,6 +96,10 @@ public sealed partial class NowPlayingPage : Page
         // takes over from it when they scroll away.
         _lyrics = new LyricsPanel(LyricsScroll, LyricsLines, DispatcherQueue);
         _lyrics.Seek = seconds => Playback.SeekSeconds(seconds);
+        // The panel asks the player where the song is, every frame: the app's own
+        // tick only comes twice a second, and a word that fills in half-second steps
+        // reads as a sequence of keyframes rather than a word being sung.
+        _lyrics.PositionSource = () => Playback.PositionSeconds;
         LyricsScroll.PointerPressed += (_, _) => _lyrics.UserScrolled = true;
         LyricsScroll.PointerWheelChanged += (_, _) => _lyrics.UserScrolled = true;
     }
@@ -114,6 +118,11 @@ public sealed partial class NowPlayingPage : Page
         RenderQueue();
         RenderPlayState();
         ApplyLayout();
+        if (_lyricsOpen)
+        {
+            // The panel was left open when the page was closed: it starts following again.
+            _lyrics?.PlayEntrance();
+        }
     }
 
     protected override void OnNavigatedFrom(NavigationEventArgs args)
@@ -124,6 +133,7 @@ public sealed partial class NowPlayingPage : Page
         Playback.PlayStateChanged -= OnPlayStateChanged;
         Playback.PositionTick -= OnPositionTick;
         App.Library.Changed -= OnLibraryChanged;
+        _lyrics?.Pause();
         Drift.Stop();
     }
 
@@ -476,6 +486,10 @@ public sealed partial class NowPlayingPage : Page
             _lyrics?.PlayEntrance();
             _lyrics?.SetPosition(Playback.PositionSeconds);
             _lyrics?.Follow();
+        }
+        else
+        {
+            _lyrics?.Pause();
         }
     }
 
