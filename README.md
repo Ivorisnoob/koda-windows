@@ -22,8 +22,9 @@ the Windows leg - WinUI 3, Fluent, and the Windows shell's own surfaces.
 
 It works without an official YouTube API key, and an account is optional.
 
-> **Status: early.** There is no published release yet. The app runs straight from the build output
-> - see [Building from source](#building-from-source). Releases will follow.
+> **Status: early.** The first release is out - [v0.1.0](https://github.com/Ivorisnoob/koda-windows/releases/tag/v0.1.0),
+> with the MSI installer and the portable zip. There is no MSIX yet: that format needs a signing
+> certificate the operating system trusts, and this release ships unsigned.
 
 ## What is here today
 
@@ -58,6 +59,29 @@ On the way: Last.fm, Discord Rich Presence, downloads and Ready Offline, sign-in
   gates.
 - **Native or nothing.** Fluent 2 and Windows 11 conventions are the construction material;
   Koda's personality shows through its theming surface.
+
+## Installing
+
+Grab the release from the [releases page](https://github.com/Ivorisnoob/koda-windows/releases).
+
+**The installer (MSI).** Download `Koda-0.1.0.0-win-x64.msi` and double-click it. Windows
+Installer does the rest: the app lands in your own Programs folder, a Koda entry appears in the
+Start menu and in Installed apps, and uninstalling is Settings  Apps  Koda. No administrator rights
+are needed, and no certificate: Windows Installer installs an unsigned package without complaint.
+A signing certificate would only buy a "trusted publisher" label and a quieter SmartScreen message
+for the downloaded file.
+
+**Portable build.** Download `Koda-0.1.0.0-win-x64-portable.zip`, unpack it anywhere, and run
+`Koda.exe`. Nothing is installed, nothing is registered, no runtime setup, no prompts. The app is
+self-contained: the Windows App SDK runtime travels inside the zip.
+
+**Windows package (MSIX).** Not in this release. The MSIX is the format the Store and winget use,
+with automatic updates, and it must be signed by a certificate the operating system already
+trusts - a code-signing certificate from a public CA, or the Microsoft Store's own signature after
+submission. A self-signed build is for local development only: Windows refuses to deploy it on a
+normal machine.
+
+Both downloads are for x64. The app is self-contained, so nothing else needs installing.
 
 ## Building from source
 
