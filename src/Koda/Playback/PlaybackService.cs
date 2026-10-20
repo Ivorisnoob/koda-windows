@@ -77,7 +77,13 @@ public sealed class PlaybackService
 
     public bool IsMuted { get; private set; }
 
-    public bool Autoplay { get; private set; } = true;
+    /// <summary>When the queue ends, the radio of the last song keeps it going. The listener's
+    /// choice, kept with the other settings.</summary>
+    public bool Autoplay
+    {
+        get => Koda.Core.Settings.Current.Autoplay;
+        set => Koda.Core.Settings.Current.Update(s => s.Autoplay = value);
+    }
 
     public bool CanNext => _queue.PeekNext(automatic: false) is not null || (Autoplay && CurrentSong is not null);
 
@@ -560,13 +566,13 @@ public sealed class PlaybackService
 
     // MARK: persistence (the Mac's persistQueue)
 
-    private sealed record SavedState(PlayQueue.Saved Queue, double Position, bool Autoplay);
+    private sealed record SavedState(PlayQueue.Saved Queue, double Position);
 
     private void SaveQueue()
     {
         try
         {
-            var state = new SavedState(_queue.Save(), PositionSeconds, Autoplay);
+            var state = new SavedState(_queue.Save(), PositionSeconds);
             File.WriteAllText(QueuePath, JsonSerializer.Serialize(state));
         }
         catch (Exception)
@@ -583,7 +589,6 @@ public sealed class PlaybackService
             var state = JsonSerializer.Deserialize<SavedState>(File.ReadAllText(QueuePath));
             if (state?.Queue?.Songs is not { Length: > 0 }) return;
             _queue = PlayQueue.Restore(state.Queue);
-            Autoplay = state.Autoplay;
             _resumeAt = state.Position;
             _loaded = false;
             _wantsToPlay = false;

@@ -1,11 +1,16 @@
 using System;
 using System.IO;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using Microsoft.UI.Xaml;
 
 namespace Koda;
 
+/// <summary>
+/// The app: where the data lives, what the listener has chosen, and the window.
+///
+/// The settings live in the engine (<see cref="Koda.Core.Settings"/>) so the engine
+/// can read them too - the lyrics services, the cache limit, the history. The shell
+/// only writes them.
+/// </summary>
 public partial class App : Application
 {
     public static MainWindow? Shell { get; private set; }
@@ -16,18 +21,23 @@ public partial class App : Application
     /// <summary>The audio byte store under the data root's audio folder - the CachingLoader
     /// transport keeps every byte that streams through, so a song played before starts from the file.</summary>
     public static Koda.Core.Storage.AudioStore AudioStore { get; } =
-        new(Path.Combine(DataDirectory, "audio"));
+        new(Path.Combine(DataDirectory, "audio"))
+        {
+            // How much is kept for songs played from the network is the listener's choice.
+            CacheLimit = (long)Koda.Core.Settings.Current.CacheLimit,
+        };
 
     /// <summary>Likes, saved collections, history, stats: library.json in the data root.</summary>
     public static Koda.Core.Library Library { get; } = new(DataDirectory);
 
-    /// <summary>Close-to-tray: shipped ON; boxed in memory until the Settings store lands.</summary>
-    public static bool CloseToTray { get; private set; } = true;
+    /// <summary>Close-to-tray: shipped ON; the settings file holds the listener's choice.</summary>
+    public static bool CloseToTray => Koda.Core.Settings.Current.CloseToTray;
 
     /// <summary>App volume 0..100, remembered across launches with the shell settings.</summary>
-    public static double Volume { get; private set; } = 100.0;
+    public static double Volume => Koda.Core.Settings.Current.Volume;
 
-    private static string SettingsPath => Path.Combine(DataDirectory, "shell-settings.json");
+    /// <summary>The listener's settings.</summary>
+    public static Koda.Core.Settings Settings => Koda.Core.Settings.Current;
 
     public App()
     {
@@ -36,13 +46,18 @@ public partial class App : Application
         Koda.Interop.AppIdentity.Register();
 
         InitializeComponent();
-        LoadShellSettings();
 
         // A crash leaves its real reason in the crash log (the Windows event log only shows 0xc000027b).
         UnhandledException += (_, e) => WriteCrash($"{e.Message}\n{e.Exception}");
         DebugSettings.XamlResourceReferenceFailed += (_, e) => WriteCrash($"resource: {e.Message}");
         DebugSettings.BindingFailed += (_, e) => System.Diagnostics.Debug.WriteLine(e.Message);
     }
+
+    public static void SetCloseToTray(bool value) =>
+        Settings.Update(s => s.CloseToTray = value);
+
+    public static void SetVolume(double value) =>
+        Settings.Update(s => s.Volume = Math.Clamp(value, 0, 100));
 
     private static void WriteCrash(string text)
     {
@@ -60,62 +75,6 @@ public partial class App : Application
     {
         Shell = new MainWindow();
         Shell.Activate();
-    }
-
-    public static void SetCloseToTray(bool value)
-    {
-        if (CloseToTray == value)
-        {
-            return;
-        }
-
-        CloseToTray = value;
-        SaveShellSettings();
-    }
-
-    public static void SetVolume(double value)
-    {
-        Volume = Math.Clamp(value, 0, 100);
-        SaveShellSettings();
-    }
-
-    private static void LoadShellSettings()
-    {
-        try
-        {
-            if (!File.Exists(SettingsPath))
-            {
-                return;
-            }
-
-            var node = JsonNode.Parse(File.ReadAllText(SettingsPath));
-            if (node?["closeToTray"] is JsonNode closeToTray)
-            {
-                CloseToTray = closeToTray.GetValue<bool>();
-            }
-
-            if (node?["volume"] is JsonNode volume)
-            {
-                Volume = Math.Clamp(volume.GetValue<double>(), 0, 100);
-            }
-        }
-        catch (Exception error)
-        {
-            // Defaults hold; the report shows the reason instead of breaking the launch.
-            System.Diagnostics.Debug.WriteLine($"shell-settings load failed: {error.Message}");
-        }
-    }
-
-    private static void SaveShellSettings()
-    {
-        try
-        {
-            Directory.CreateDirectory(DataDirectory);
-            File.WriteAllText(SettingsPath, JsonSerializer.Serialize(new { closeToTray = CloseToTray, volume = Volume }));
-        }
-        catch (Exception error)
-        {
-            System.Diagnostics.Debug.WriteLine($"shell-settings save failed: {error.Message}");
-        }
+        Koda.Helpers.ShellChrome.ApplyTheme();
     }
 }

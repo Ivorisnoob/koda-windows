@@ -12,12 +12,16 @@ public static class LyricsService
 {
     private static readonly LyricsClient Client = new();
 
-    /// <summary>The lyrics of a song, or null when no service has them.</summary>
-    public static Task<Lyrics?> For(Song song) => Client.LyricsFor(song);
+    /// <summary>The lyrics of a song, or null when no service has them. The services the
+    /// listener turned off are not asked.</summary>
+    public static Task<Lyrics?> For(Song song) => Client.LyricsFor(song, Settings.Current.LyricsSources);
 
     /// <summary>Ask for the lyrics before anyone wants them.</summary>
     public static void Prefetch(Song song)
     {
         _ = For(song);
     }
+
+    /// <summary>Forget the lyrics found this session, so the next look asks the services again.</summary>
+    public static void Forget() => LyricsClient.ClearCache();
 }

@@ -84,14 +84,20 @@ public sealed class Library
         else s.Liked.Insert(0, song);
     });
 
+    /// <summary>Remembers that a song was played: in the recently played list, and in the stats.</summary>
     public void RecordPlay(Song song, DateTimeOffset? at = null)
     {
         var date = at ?? DateTimeOffset.Now;
+        var keepHistory = Settings.Current.SavesListeningHistory;
         Edit(s =>
         {
-            s.Recent.RemoveAll(x => x.Id == song.Id);
-            s.Recent.Insert(0, song);
-            if (s.Recent.Count > RecentLimit) s.Recent.RemoveRange(RecentLimit, s.Recent.Count - RecentLimit);
+            if (keepHistory)
+            {
+                s.Recent.RemoveAll(x => x.Id == song.Id);
+                s.Recent.Insert(0, song);
+                if (s.Recent.Count > RecentLimit) s.Recent.RemoveRange(RecentLimit, s.Recent.Count - RecentLimit);
+            }
+
             var stats = s.SongStats.TryGetValue(song.Id, out var held) ? held : global::Koda.Core.SongStats.New(song, date);
             s.SongStats[song.Id] = stats with { Song = song, Plays = stats.Plays + 1, LastPlayed = date };
         });
@@ -238,6 +244,10 @@ public sealed class Library
     {
         var trimmed = query.Trim();
         if (trimmed.Length == 0) return;
+
+        // Off, what is searched for is not remembered.
+        if (!Settings.Current.SavesSearchHistory) return;
+
         Edit(s =>
         {
             s.Searches.RemoveAll(q => string.Equals(q, trimmed, StringComparison.OrdinalIgnoreCase));

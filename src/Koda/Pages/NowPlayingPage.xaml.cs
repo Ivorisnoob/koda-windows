@@ -270,7 +270,10 @@ public sealed partial class NowPlayingPage : Page
 
         // The cover sits full size while sound plays, a little back while paused or loading.
         (playing && !loading ? CoverIn : CoverOut).Begin();
-        var animate = new Windows.UI.ViewManagement.UISettings().AnimationsEnabled;
+        // The cover's colours drift behind the player, unless the listener turned that off
+        // or the system has animations turned off.
+        var animate = new Windows.UI.ViewManagement.UISettings().AnimationsEnabled &&
+            Koda.Core.Settings.Current.AnimatesPlayerBackground;
         if (playing && animate) Drift.Begin();
         else Drift.Pause();
     }

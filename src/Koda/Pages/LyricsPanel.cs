@@ -204,6 +204,8 @@ internal sealed class LyricsPanel : IDisposable
         for (var index = 0; index < lyrics.Lines.Count; index++)
         {
             var line = lyrics.Lines[index];
+            var settings = Koda.Core.Settings.Current;
+            var fontSize = settings.LyricsFontSize;
             var row = new Row
             {
                 Line = line,
@@ -212,6 +214,13 @@ internal sealed class LyricsPanel : IDisposable
             };
 
             var host = new StackPanel { Margin = new Thickness(0, 7, 0, 7), Spacing = 6 };
+            // A duet sings from the right, so its lines sit on the right.
+            if (settings.DuetSides && line.Voice == LyricVoice.Duet)
+            {
+                host.HorizontalAlignment = HorizontalAlignment.Right;
+                row.Words.HorizontalAlignment = HorizontalAlignment.Right;
+            }
+
             host.Children.Add(row.Words);
 
             row.Host = host;
@@ -225,13 +234,19 @@ internal sealed class LyricsPanel : IDisposable
 
             foreach (var word in line.Words)
             {
-                var item = MakeWord(word, 17);
+                var item = MakeWord(word, fontSize);
                 row.WordItems.Add(item);
             }
 
             foreach (var word in line.Background)
             {
-                var item = MakeWord(word, 14);
+                if (!settings.ShowsBackingVocals)
+                {
+                    break; // the listener turned the backing vocals off
+                }
+
+                // Backing vocals are drawn at 70% of the sung line.
+                var item = MakeWord(word, fontSize * 0.7);
                 row.BackgroundItems.Add(item);
             }
 
@@ -455,14 +470,15 @@ internal sealed class LyricsPanel : IDisposable
         }
 
         var time = _position;
+        var motion = Koda.Core.Settings.Current.LyricsMotion;
         foreach (var word in current.WordItems)
         {
-            Paint(word, time);
+            Paint(word, time, motion);
         }
 
         foreach (var word in current.BackgroundItems)
         {
-            Paint(word, time);
+            Paint(word, time, motion);
         }
 
         // The interlude dots fill while the silence lasts.
@@ -483,13 +499,13 @@ internal sealed class LyricsPanel : IDisposable
     }
 
     /// <summary>One word: how much of it is sung, how far it has risen, how much it glows.</summary>
-    private void Paint(Word word, double time)
+    private void Paint(Word word, double time, bool motion)
     {
         var data = word.Data;
         var fill = Math.Clamp((time - data.Start) / Math.Max(0.001, data.End - data.Start), 0, 1);
-        var rise = Math.Clamp((time - data.Start) / RiseSeconds, 0, 1);
+        var rise = motion ? Math.Clamp((time - data.Start) / RiseSeconds, 0, 1) : 0;
         var eased = 1 - Math.Pow(1 - rise, 3); // quick at first, settling gently
-        var sustainStrength = Math.Clamp((data.End - data.Start - SustainStart) / SustainStart, 0, 1);
+        var sustainStrength = motion ? Math.Clamp((data.End - data.Start - SustainStart) / SustainStart, 0, 1) : 0;
         var sustain = sustainStrength * Math.Sin(Math.PI * fill);
 
         // The mask runs from -feather to 1, so the word is clear at the start and full at the end.
