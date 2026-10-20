@@ -405,6 +405,7 @@ public sealed class PlaybackService
         App.Library.RecordPlay(song);
         App.Library.Flush(); // the listening time of the finished song is on disk now
         TrackChanged?.Invoke(); // the exact duration is known now
+        Koda.Services.LyricsService.Prefetch(song); // the words are ready before anyone asks
         _ = TopUpAsync();
     }
 

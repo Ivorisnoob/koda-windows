@@ -4,6 +4,7 @@ using System.Linq;
 using Koda.Core;
 using Koda.Helpers;
 using Koda.Playback;
+using Koda.Services;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -29,6 +30,16 @@ public sealed partial class NowPlayingPage : Page
     /// <summary>Whether the lyrics panel was open, kept for the session as the Mac keeps its panel.</summary>
     private static bool _lyricsOpen;
 
+    /// <summary>Where a side panel is installed: the layout's column, or the narrow host.</summary>
+    private enum PanelPlace
+    {
+        Layout,
+        Narrow,
+    }
+
+    private PanelPlace _queuePlace = PanelPlace.Layout;
+    private PanelPlace _lyricsPlace = PanelPlace.Layout;
+
     private PlaybackService Playback => PlaybackService.Instance;
     private readonly ObservableCollection<QueueItem> _upcoming = [];
     private string? _paletteFor;
@@ -43,14 +54,10 @@ public sealed partial class NowPlayingPage : Page
 
     // MARK: lyrics
 
-    private readonly LyricsClient _lyricsClient = new();
-    private Lyrics? _lyrics;
-    private readonly List<LyricBlock> _lyricBlocks = [];
-    private int _currentLyric = -1;
-    private string? _lyricsFor;
+    /// <summary>The panel that shows the words and follows the song.</summary>
+    private LyricsPanel? _lyrics;
 
-    /// <summary>One line in the panel: the text, the backing vocals under it, and the line itself.</summary>
-    private sealed record LyricBlock(LyricLine Line, TextBlock Text, TextBlock? Background);
+    private string? _lyricsFor;
 
     public NowPlayingPage()
     {
@@ -84,6 +91,13 @@ public sealed partial class NowPlayingPage : Page
             _cleared = null;
             RenderQueueHeader();
         };
+
+        // The lyrics: the panel follows the song, and the listener's own scrolling
+        // takes over from it when they scroll away.
+        _lyrics = new LyricsPanel(LyricsScroll, LyricsLines, DispatcherQueue);
+        _lyrics.Seek = seconds => Playback.SeekSeconds(seconds);
+        LyricsScroll.PointerPressed += (_, _) => _lyrics.UserScrolled = true;
+        LyricsScroll.PointerWheelChanged += (_, _) => _lyrics.UserScrolled = true;
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs args)
@@ -146,8 +160,9 @@ public sealed partial class NowPlayingPage : Page
     // MARK: lyrics
 
     /// <summary>
-    /// The lyrics for this song, from the services that answer best. A song with no
-    /// lyrics says so instead of showing an empty panel.
+    /// The lyrics for this song, from the services that answer best. They are asked for
+    /// when the song starts (the panel is not the only thing that wants them), so the
+    /// words are usually already there by the time the panel opens.
     /// </summary>
     private async System.Threading.Tasks.Task LoadLyricsAsync(Song song)
     {
@@ -157,16 +172,13 @@ public sealed partial class NowPlayingPage : Page
         }
 
         _lyricsFor = song.Id;
-        _lyrics = null;
-        _currentLyric = -1;
-        LyricsLines.Children.Clear();
-        _lyricBlocks.Clear();
         LyricsEmpty.Visibility = Visibility.Collapsed;
+        _lyrics?.Load(null);
 
         Lyrics? lyrics;
         try
         {
-            lyrics = await _lyricsClient.LyricsFor(song);
+            lyrics = await LyricsService.For(song);
         }
         catch (Exception)
         {
@@ -178,155 +190,16 @@ public sealed partial class NowPlayingPage : Page
             return; // another song took over while the services were answering
         }
 
-        _lyrics = lyrics;
+        _lyrics?.Load(lyrics);
+        _lyrics?.Offset = App.Library.LyricsOffset(song.Id);
         if (lyrics is null)
         {
             LyricsEmpty.Visibility = Visibility.Visible;
             return;
         }
 
-        if (!lyrics.IsSynced)
-        {
-            // Untimed lyrics are shown as they came: one block, no timing.
-            var plain = new TextBlock
-            {
-                Text = lyrics.Plain,
-                TextWrapping = TextWrapping.Wrap,
-                FontSize = 18,
-                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xD9, 0xFF, 0xFF, 0xFF)),
-            };
-            LyricsLines.Children.Add(plain);
-            return;
-        }
-
-        foreach (var line in lyrics.Lines)
-        {
-            var text = new TextBlock
-            {
-                Text = line.Text,
-                TextWrapping = TextWrapping.Wrap,
-                FontSize = 17,
-                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0x59, 0xFF, 0xFF, 0xFF)),
-            };
-            text.Tapped += (_, _) => Playback.SeekSeconds(line.Time);
-
-            TextBlock? background = null;
-            if (line.Background.Count > 0)
-            {
-                background = new TextBlock
-                {
-                    Text = LyricsFormats.Joined(line.Background),
-                    TextWrapping = TextWrapping.Wrap,
-                    FontSize = 14,
-                    Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)),
-                };
-            }
-
-            var host = new StackPanel { Margin = new Thickness(0, 7, 0, 7) };
-            host.Children.Add(text);
-            if (background is not null)
-            {
-                host.Children.Add(background);
-            }
-
-            LyricsLines.Children.Add(host);
-            _lyricBlocks.Add(new LyricBlock(line, text, background));
-        }
-
-        UpdateLyricHighlight(Playback.PositionSeconds);
+        _lyrics?.PlayEntrance();
     }
-
-    /// <summary>The line being sung is lit; inside it, the words already sung are brighter.</summary>
-    private void UpdateLyricHighlight(double position)
-    {
-        if (_lyrics is not { IsSynced: true } || _lyricBlocks.Count == 0)
-        {
-            return;
-        }
-
-        var index = Lyrics.IndexOf(position, _lyrics.Lines) ?? -1;
-        if (index != _currentLyric)
-        {
-            if (_currentLyric >= 0 && _currentLyric < _lyricBlocks.Count)
-            {
-                Dim(_lyricBlocks[_currentLyric]);
-            }
-
-            _currentLyric = index;
-            if (index >= 0 && index < _lyricBlocks.Count)
-            {
-                Light(_lyricBlocks[index]);
-                ScrollToLyric(index);
-            }
-        }
-
-        if (index >= 0 && index < _lyricBlocks.Count)
-        {
-            HighlightWords(_lyricBlocks[index], position);
-        }
-    }
-
-    private static void Dim(LyricBlock block)
-    {
-        block.Text.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0x59, 0xFF, 0xFF, 0xFF));
-        block.Text.FontSize = 17;
-        if (block.Background is not null)
-        {
-            block.Background.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF));
-        }
-    }
-
-    private static void Light(LyricBlock block)
-    {
-        block.Text.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF));
-        block.Text.FontSize = 20;
-        if (block.Background is not null)
-        {
-            block.Background.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0x80, 0xFF, 0xFF, 0xFF));
-        }
-    }
-
-    /// <summary>The words already sung inside the current line, word by word.</summary>
-    private static void HighlightWords(LyricBlock block, double position)
-    {
-        var words = block.Line.Words;
-        if (words.Count == 0)
-        {
-            return;
-        }
-
-        block.Text.Inlines.Clear();
-        for (var index = 0; index < words.Count; index++)
-        {
-            var word = words[index];
-            var sung = position >= word.End;
-            var running = !sung && position >= word.Start;
-            var color = running
-                ? Windows.UI.Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF)
-                : sung
-                    ? Windows.UI.Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)
-                    : Windows.UI.Color.FromArgb(0x59, 0xFF, 0xFF, 0xFF);
-            block.Text.Inlines.Add(new Run
-            {
-                Text = word.SpaceAfter ? word.Text + " " : word.Text,
-                Foreground = new SolidColorBrush(color),
-            });
-        }
-    }
-
-    /// <summary>Bring the line being sung into view, without jumping the panel around.</summary>
-    private void ScrollToLyric(int index)
-    {
-        if (index < 0 || index >= LyricsLines.Children.Count)
-        {
-            return;
-        }
-
-        var child = LyricsLines.Children[index];
-        var offset = child.TransformToVisual(LyricsLines).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
-        LyricsScroll.ChangeView(null, Math.Max(0, offset - LyricsScroll.ViewportHeight / 3), null);
-    }
-
     /// <summary>The background takes the cover's three strongest colours.</summary>
     private async System.Threading.Tasks.Task PaintAsync(Song song)
     {
@@ -403,7 +276,8 @@ public sealed partial class NowPlayingPage : Page
         Scrubber.Maximum = duration;
         Scrubber.Value = Math.Clamp(Playback.PositionSeconds, 0, duration);
         UpdateTimes(Scrubber.Value);
-        UpdateLyricHighlight(Playback.PositionSeconds);
+        _lyrics?.SetPosition(Playback.PositionSeconds);
+        _lyrics?.Follow();
     }
 
     private void UpdateTimes(double position)
@@ -597,7 +471,12 @@ public sealed partial class NowPlayingPage : Page
         }
 
         ApplyLayout();
-        UpdateLyricHighlight(Playback.PositionSeconds);
+        if (_lyricsOpen)
+        {
+            _lyrics?.PlayEntrance();
+            _lyrics?.SetPosition(Playback.PositionSeconds);
+            _lyrics?.Follow();
+        }
     }
 
     private void OnCloseClick(object sender, RoutedEventArgs e) => Close();
@@ -632,27 +511,15 @@ public sealed partial class NowPlayingPage : Page
     {
         QueueToggle.IsChecked = _queueOpen;
         LyricsToggle.IsChecked = _lyricsOpen;
-
-        // One side panel at a time: the queue and the lyrics share the column.
-        var panel = _lyricsOpen ? LyricsPanel : QueuePanel;
-        var other = _lyricsOpen ? QueuePanel : LyricsPanel;
-        other.Visibility = Visibility.Collapsed;
         var open = _queueOpen || _lyricsOpen;
+
+        PlaceQueuePanel();
+        PlaceLyricsPanel();
 
         if (_wide)
         {
-            if (panel.Parent == NarrowQueueHost)
-            {
-                NarrowQueueHost.Content = null;
-            }
-            else if (panel.Parent != Layout)
-            {
-                Layout.Children.Add(panel);
-            }
-
-            Grid.SetRow(panel, 1);
-            Grid.SetColumn(panel, 1);
-            panel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+            QueuePanel.Visibility = _queueOpen ? Visibility.Visible : Visibility.Collapsed;
+            LyricsView.Visibility = _lyricsOpen ? Visibility.Visible : Visibility.Collapsed;
             PanelColumn.Width = open ? new GridLength(1.2, GridUnitType.Star) : new GridLength(0);
             Layout.ColumnSpacing = open ? 64 : 0;
             CoverBox.Visibility = Visibility.Visible;
@@ -662,19 +529,10 @@ public sealed partial class NowPlayingPage : Page
         }
         else
         {
-            if (panel.Parent == Layout)
-            {
-                Layout.Children.Remove(panel);
-            }
-
-            if (panel.Parent != NarrowQueueHost)
-            {
-                NarrowQueueHost.Content = panel;
-            }
-
+            QueuePanel.Visibility = _queueOpen ? Visibility.Visible : Visibility.Collapsed;
+            LyricsView.Visibility = _lyricsOpen ? Visibility.Visible : Visibility.Collapsed;
             PanelColumn.Width = new GridLength(0);
             Layout.ColumnSpacing = 0;
-            panel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
             CoverBox.Visibility = open ? Visibility.Collapsed : Visibility.Visible;
             CoverRow.Height = open ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
             NarrowQueueRow.Height = open ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
@@ -682,6 +540,80 @@ public sealed partial class NowPlayingPage : Page
         }
 
         PlayerPanel.MaxWidth = _wide ? 460 : 560;
+    }
+
+    /// <summary>
+    /// Where the queue panel lives: in the layout's panel column when the window is wide,
+    /// in the cover's place when it is narrow.
+    ///
+    /// The place is kept as state, not read from the element: an element that is a
+    /// content presenter's content has no Parent, so asking the element where it is
+    /// answers "nowhere" - which is how the panel used to be left behind in the narrow
+    /// host after the window grew again. An element can also only be installed in one
+    /// place at a time, so it is released before it is moved.
+    /// </summary>
+    private void PlaceQueuePanel()
+    {
+        var want = _wide ? PanelPlace.Layout : PanelPlace.Narrow;
+        if (_queuePlace == want)
+        {
+            return;
+        }
+
+        if (_queuePlace == PanelPlace.Narrow)
+        {
+            NarrowQueueHost.Content = null;
+        }
+        else
+        {
+            Layout.Children.Remove(QueuePanel);
+        }
+
+        if (want == PanelPlace.Narrow)
+        {
+            NarrowQueueHost.Content = QueuePanel;
+        }
+        else
+        {
+            Layout.Children.Add(QueuePanel);
+            Grid.SetRow(QueuePanel, 1);
+            Grid.SetColumn(QueuePanel, 1);
+        }
+
+        _queuePlace = want;
+    }
+
+    /// <summary>The same two places for the lyrics panel, with a host of its own so the two
+    /// panels never have to trade places.</summary>
+    private void PlaceLyricsPanel()
+    {
+        var want = _wide ? PanelPlace.Layout : PanelPlace.Narrow;
+        if (_lyricsPlace == want)
+        {
+            return;
+        }
+
+        if (_lyricsPlace == PanelPlace.Narrow)
+        {
+            NarrowLyricsHost.Content = null;
+        }
+        else
+        {
+            Layout.Children.Remove(LyricsView);
+        }
+
+        if (want == PanelPlace.Narrow)
+        {
+            NarrowLyricsHost.Content = LyricsView;
+        }
+        else
+        {
+            Layout.Children.Add(LyricsView);
+            Grid.SetRow(LyricsView, 1);
+            Grid.SetColumn(LyricsView, 1);
+        }
+
+        _lyricsPlace = want;
     }
 
     private void ShowCompactCover(bool show)
@@ -702,4 +634,6 @@ public sealed partial class NowPlayingPage : Page
         return null;
     }
 }
+
+
 

@@ -187,8 +187,10 @@
                     </Grid>
                 </StackPanel>
 
-                <!-- Narrow with the queue open: the list takes the cover's place. -->
+                <!-- Narrow with the queue open: the list takes the cover's place. The
+                     lyrics have their own host, so the two never trade places. -->
                 <ContentPresenter x:Name="NarrowQueueHost" Grid.Row="2" Margin="0,12,0,0" />
+                <ContentPresenter x:Name="NarrowLyricsHost" Grid.Row="2" Margin="0,12,0,0" />
 
                 <!-- Bottom bar: the lyrics and the queue. -->
                 <Grid Grid.Row="3" Margin="0,10,0,0">
@@ -217,8 +219,10 @@
                 </Grid>
             </Grid>
 
-            <!-- The lyrics panel: the lines, the one being sung lit, the words inside it. -->
-            <Grid x:Name="LyricsPanel" Grid.Row="1" Grid.Column="1" MaxWidth="620" Visibility="Collapsed">
+            <!-- The lyrics panel: the lines, the one being sung lit, the words inside it.
+                 It lives in the layout's panel column, beside the player, and takes the
+                 cover's place when the window is narrow. -->
+            <Grid x:Name="LyricsView" Grid.Row="1" Grid.Column="1" MaxWidth="620" Visibility="Collapsed">
                 <ScrollViewer
                     x:Name="LyricsScroll"
                     VerticalScrollBarVisibility="Auto"
@@ -323,3 +327,4 @@
         </StackPanel>
     </Grid>
 </Page>
+
