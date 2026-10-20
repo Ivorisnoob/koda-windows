@@ -9,6 +9,9 @@
     <SupportedOSPlatformVersion>10.0.22000.0</SupportedOSPlatformVersion>
     <RootNamespace>Koda</RootNamespace>
     <AssemblyName>Koda</AssemblyName>
+    <!-- The About row reads the assembly version; keep it the same as the installer's
+         identity (Package.appxmanifest), or the two disagree. -->
+    <Version>0.1.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
     <Platforms>x86;x64;ARM64</Platforms>

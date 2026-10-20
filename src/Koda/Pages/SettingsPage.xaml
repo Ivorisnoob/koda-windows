@@ -77,21 +77,6 @@
                 </Border>
             </StackPanel>
 
-            <!-- Volume -->
-            <StackPanel Spacing="8">
-                <TextBlock Text="Volume" Style="{ThemeResource SubtitleTextBlockStyle}" />
-                <Border CornerRadius="12" Background="#0FFFFFFF" Padding="16,14">
-                    <StackPanel>
-                        <Slider x:Name="VolumeSlider" Header="Koda's volume" Minimum="0" Maximum="100" ValueChanged="OnVolumeChanged" />
-                        <TextBlock
-                            Text="A Windows app can set the system volume, so this is Koda's own level, under the system's."
-                            Style="{ThemeResource CaptionTextBlockStyle}"
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
-            </StackPanel>
-
             <!-- Sources -->
             <StackPanel Spacing="8">
                 <TextBlock Text="Sources" Style="{ThemeResource SubtitleTextBlockStyle}" />
@@ -338,22 +323,6 @@
                             TextWrapping="Wrap"
                             Margin="0,0,0,10" />
                         <Button Content="Clear the listening cache" Click="OnClearCacheClick" HorizontalAlignment="Left" Margin="0,0,0,6" />
-                    </StackPanel>
-                </Border>
-            </StackPanel>
-
-            <!-- Downloads -->
-            <StackPanel Spacing="8">
-                <TextBlock Text="Downloads" Style="{ThemeResource SubtitleTextBlockStyle}" />
-                <Border CornerRadius="12" Background="#0FFFFFFF" Padding="16,14">
-                    <StackPanel>
-                        <TextBlock
-                            x:Name="DownloadsText"
-                            Style="{ThemeResource CaptionTextBlockStyle}"
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            TextWrapping="Wrap"
-                            Margin="0,0,0,10" />
-                        <Button Content="Remove the downloads" Click="OnRemoveDownloadsClick" HorizontalAlignment="Left" />
                     </StackPanel>
                 </Border>
             </StackPanel>

@@ -16,27 +16,35 @@
 </p>
 
 Koda is a family of apps: one native app per operating system, each built with that platform's own
-design system. [Koda for Android](https://github.com/Ivorisnoob/Koda) is the shipped one; this
-repository is the Windows leg - WinUI 3, Fluent, and the Windows shell's own surfaces.
+design system. [Koda for Android](https://github.com/Ivorisnoob/Koda) and
+[Koda for iOS and macOS](https://github.com/Ivorisnoob/iKoda) are the shipped ones; this repository is
+the Windows leg - WinUI 3, Fluent, and the Windows shell's own surfaces.
 
 It works without an official YouTube API key, and an account is optional.
 
+> **Status: early.** There is no published release yet. The app runs straight from the build output
+> - see [Building from source](#building-from-source). Releases will follow.
+
 ## What is here today
 
-Shipped and working:
+Working and in the app:
 
 - **Home** with shelves, Your Mix, Quick picks, recently played and charts.
 - **Search** by song, artist, album or playlist, with recent searches.
-- **Album, artist and playlist pages**, each with its own hero and track list.
+- **Album, artist, playlist and mood pages**, each with its own hero and track list.
 - **Library**: liked songs, your playlists, listening history and stats.
 - **Queue** with shuffle, repeat, Play next, drag to reorder, undo and radio continuation.
 - **Now Playing**: the cover's palette as the page's own background, art-adaptive accent.
+- **Lyrics**: word by word, in the panel, from three services at once (YouLyPlus, BetterLyrics and
+  LRCLIB). The line being sung lights and fills as it is sung, held notes swell, backing vocals
+  sit under their line, the second voice of a duet takes the right side, and the panel follows the
+  song.
 - **System integration**: media keys and the Windows media card (SMTC), a tray transport, and
   close-to-tray playback.
 - **Android import**: read a Koda for Android backup - liked songs, history, playlists, albums.
 
-On the way: lyrics, Last.fm, Discord Rich Presence, downloads and Ready Offline, sign-in,
-toasts, `koda://` protocol handling, and a separate Settings window.
+On the way: Last.fm, Discord Rich Presence, downloads and Ready Offline, sign-in, toasts, and
+`koda://` protocol handling.
 
 ## Design rules this app holds to
 
@@ -50,25 +58,6 @@ toasts, `koda://` protocol handling, and a separate Settings window.
   gates.
 - **Native or nothing.** Fluent 2 and Windows 11 conventions are the construction material;
   Koda's personality shows through its theming surface.
-
-## Installing
-
-**The installer (MSI).** Download `Koda-<version>-win-x64.msi` and double-click it. Windows
-Installer does the rest: the app lands in your own Programs folder, a Koda entry appears in the
-Start menu and in Installed apps, and uninstalling is Settings → Apps → Koda. No administrator
-rights are needed, and no certificate: Windows Installer installs an unsigned package without
-complaint. A signing certificate would only buy a "trusted publisher" label and a quieter
-SmartScreen message for the downloaded file.
-
-**Portable build.** Download `Koda-<version>-win-x64-portable.zip`, unpack it anywhere, and run
-`Koda.exe`. Nothing is installed, nothing is registered, no runtime setup, no prompts. The app is
-self-contained: the Windows App SDK runtime travels inside the zip.
-
-**Windows package (MSIX).** The repository also builds an MSIX package - the format the Store
-and winget use, with automatic updates. It must be signed by a certificate the operating system
-already trusts: a code-signing certificate from a public CA, or the Microsoft Store's own
-signature after submission. The self-signed build in `scripts/build-release.ps1` exists for
-local development and is not distributable - Windows refuses to deploy it on a normal machine.
 
 ## Building from source
 
@@ -87,8 +76,8 @@ dotnet test tests\Koda.Core.Tests
 
 The app executable lands in `src\Koda\bin\x64\Debug\net10.0-windows10.0.26100.0\`.
 
-To build the release artifacts (the portable zip, the MSI installer, and the MSIX package when a
-signing certificate is given):
+The release artifacts - the portable zip, the MSI installer, and the MSIX package when a signing
+certificate is given - are built with:
 
 ```powershell
 .\scripts\build-release.ps1
@@ -96,7 +85,9 @@ signing certificate is given):
 ```
 
 The MSI is built with the [WiX Toolset](https://wixtoolset.org) (`dotnet tool install --tool-path
-<path> wix --version 5.0.2`); the project is `installer/Koda.wxs`.
+<path> wix --version 5.0.2`); the project is `installer/Koda.wxs`. The MSIX package must be signed
+by a certificate the operating system already trusts - the self-signed build in
+`scripts/build-release.ps1` exists for local development and is not distributable.
 
 ## Where your data lives
 
@@ -114,14 +105,15 @@ $env:KODA_DATA = 'D:\KodaData'
 
 | Path | What it is |
 |---|---|
-| `src/Koda` | The WinUI 3 app: shell, pages, playback, system integration. |
-| `src/Koda.Core` | The engine: InnerTube client, parsers, playback transport, library. |
+| `src/Koda` | The WinUI 3 app: shell, pages, playback, lyrics panel, system integration. |
+| `src/Koda.Core` | The engine: InnerTube client, parsers, playback transport, library, lyrics. |
 | `tests/Koda.Core.Tests` | Offline tests, driven by recorded responses in `Fixtures`. |
-| `docs` | Windows implementation notes, parsing discipline, porting audit. |
+| `installer` | The WiX project for the MSI installer. |
+| `scripts` | The release build script. |
 
-The engine speaks to YouTube's InnerTube endpoints directly. Responses are recorded into
-fixtures and parsers are written against those, never from memory - see
-[docs/parsing.md](docs/parsing.md).
+The engine speaks to YouTube's InnerTube endpoints directly. Responses are recorded into fixtures
+and the parsers are written against those, never from memory - so the test suite runs offline and
+does not need an account.
 
 ## License
 

@@ -47,6 +47,18 @@ public class LyricsTests
     }
 
     [Fact]
+    public void LineTimedLrcEndsWhereTheNextLineStarts()
+    {
+        // A line-timed line has no words to give it an end. Ending it where it starts
+        // makes the panel read every gap as an instrumental, and hides the line.
+        var lines = Lyrics.ParseLrc("[00:10.00] a\n[00:20.00] b");
+
+        Assert.False(lines[0].IsWordTimed);
+        Assert.Equal(20, lines[0].End ?? -1, 3);
+        Assert.Null(lines[1].End);
+    }
+
+    [Fact]
     public void ReadsTtmlTimes()
     {
         Assert.Equal(27.395, LyricsFormats.TtmlTime("27.395")!.Value, 3);

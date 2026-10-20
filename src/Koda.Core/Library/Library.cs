@@ -87,16 +87,16 @@ public sealed class Library
     /// <summary>Remembers that a song was played: in the recently played list, and in the stats.</summary>
     public void RecordPlay(Song song, DateTimeOffset? at = null)
     {
+        // The switch says history, Quick picks and stats alike; when it is off,
+        // a play leaves no trace at all.
+        if (!Settings.Current.SavesListeningHistory) return;
+
         var date = at ?? DateTimeOffset.Now;
-        var keepHistory = Settings.Current.SavesListeningHistory;
         Edit(s =>
         {
-            if (keepHistory)
-            {
-                s.Recent.RemoveAll(x => x.Id == song.Id);
-                s.Recent.Insert(0, song);
-                if (s.Recent.Count > RecentLimit) s.Recent.RemoveRange(RecentLimit, s.Recent.Count - RecentLimit);
-            }
+            s.Recent.RemoveAll(x => x.Id == song.Id);
+            s.Recent.Insert(0, song);
+            if (s.Recent.Count > RecentLimit) s.Recent.RemoveRange(RecentLimit, s.Recent.Count - RecentLimit);
 
             var stats = s.SongStats.TryGetValue(song.Id, out var held) ? held : global::Koda.Core.SongStats.New(song, date);
             s.SongStats[song.Id] = stats with { Song = song, Plays = stats.Plays + 1, LastPlayed = date };
@@ -107,6 +107,8 @@ public sealed class Library
     public void AddListening(double seconds, Song song, DateTimeOffset? at = null, TimeZoneInfo? zone = null)
     {
         if (seconds <= 0) return;
+        if (!Settings.Current.SavesListeningHistory) return;
+
         var date = at ?? DateTimeOffset.Now;
         lock (_lock)
         {

@@ -11,7 +11,7 @@ using Microsoft.UI.Xaml.Navigation;
 namespace Koda.Pages;
 
 /// <summary>
-/// The settings, in the groups the Mac's settings page uses: what plays, how loud,
+/// The settings, in the groups the Mac's settings page uses: what plays,
 /// where the lyrics come from, how they look, what is remembered, what is kept on disk,
 /// and what this is.
 ///
@@ -42,7 +42,6 @@ public sealed partial class SettingsPage : Page
 
         AutoplaySwitch.IsOn = settings.Autoplay;
         CloseToTraySwitch.IsOn = settings.CloseToTray;
-        VolumeSlider.Value = settings.Volume;
 
         YouLyPlusSwitch.IsOn = settings.IsEnabled(LyricsSource.YouLyPlus);
         BetterLyricsSwitch.IsOn = settings.IsEnabled(LyricsSource.BetterLyrics);
@@ -111,21 +110,14 @@ public sealed partial class SettingsPage : Page
     private void OnAutoplayToggled(object sender, RoutedEventArgs e)
     {
         if (!_loaded) return;
-        var on = AutoplaySwitch.IsOn;
-        App.Settings.Update(s => s.Autoplay = on);
-        Playback.PlaybackService.Instance.Autoplay = on;
+        // SetAutoplay saves the choice and lets the queue follow it (and top up).
+        Playback.PlaybackService.Instance.SetAutoplay(AutoplaySwitch.IsOn);
     }
 
     private void OnCloseToTrayToggled(object sender, RoutedEventArgs e)
     {
         if (!_loaded) return;
         App.SetCloseToTray(CloseToTraySwitch.IsOn);
-    }
-
-    private void OnVolumeChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
-    {
-        if (!_loaded) return;
-        App.SetVolume(e.NewValue);
     }
 
     // MARK: lyrics
@@ -242,22 +234,11 @@ public sealed partial class SettingsPage : Page
         Notice("The listening cache is empty.");
     }
 
-    private void OnRemoveDownloadsClick(object sender, RoutedEventArgs e)
-    {
-        App.AudioStore.RemoveAllDownloads();
-        RefreshStorage();
-        Notice("The downloads are removed.");
-    }
-
     /// <summary>What is kept on disk, said plainly.</summary>
     private void RefreshStorage()
     {
         var limit = (long)App.Settings.CacheLimit;
         CacheSizeText.Text = $"{Size(App.AudioStore.CacheBytes)} of {Size(limit)} used.";
-        var downloads = App.AudioStore.Downloads.Length;
-        DownloadsText.Text = downloads == 0
-            ? "Downloaded songs play without a connection and stay until they are removed. None yet."
-            : $"{downloads} downloaded {(downloads == 1 ? "song" : "songs")}, {Size(App.AudioStore.DownloadBytes)}.";
     }
 
     // MARK: about

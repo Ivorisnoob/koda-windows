@@ -65,6 +65,8 @@ internal sealed class LyricsPanel : IDisposable
 
     private readonly List<Row> _rows = [];
     private readonly List<LyricLine> _lyricLines = [];
+    private StackPanel? _leadingDots;
+    private List<Ellipse> _leadingDotItems = [];
     private Row? _current;
     private double _offset;
     private bool _userScrolled;
@@ -92,10 +94,14 @@ internal sealed class LyricsPanel : IDisposable
         public FrameworkElement Host { get; set; } = null!;
         public required StackPanel Words { get; init; }
         public required StackPanel Background { get; init; }
+        /// <summary>The row's scale, kept apart from a word's own swell.</summary>
+        public CompositeTransform? RowTransform { get; set; }
         public List<Word> WordItems { get; } = [];
         public List<Word> BackgroundItems { get; } = [];
-        /// <summary>The three dots of an interlude, when the gap after this line is long.</summary>
+        /// <summary>The three dots of the gap that follows this line, when the gap is long.</summary>
         public List<Ellipse> Dots { get; } = [];
+        /// <summary>The dots' container; shown only while that gap is playing.</summary>
+        public StackPanel? DotsHost { get; set; }
         /// <summary>How opaque the row is: the one being sung is full, the rest step back.</summary>
         public double Opacity { get; set; } = 0.3;
         /// <summary>How large the row is: the one being sung is full size.</summary>
@@ -179,6 +185,8 @@ internal sealed class LyricsPanel : IDisposable
         _lines.Children.Clear();
         _rows.Clear();
         _lyricLines.Clear();
+        _leadingDots = null;
+        _leadingDotItems = [];
         _current = null;
         _loaded = lyrics is { IsSynced: true };
 
@@ -201,6 +209,14 @@ internal sealed class LyricsPanel : IDisposable
             return;
         }
 
+        // A long wait before the first line gets its dots too.
+        if (lyrics.Lines.Count > 0 && lyrics.Lines[0].Time >= InterludeSeconds)
+        {
+            _leadingDotItems = [];
+            _leadingDots = MakeDots(_leadingDotItems);
+            _lines.Children.Add(_leadingDots);
+        }
+
         for (var index = 0; index < lyrics.Lines.Count; index++)
         {
             var line = lyrics.Lines[index];
@@ -214,12 +230,17 @@ internal sealed class LyricsPanel : IDisposable
             };
 
             var host = new StackPanel { Margin = new Thickness(0, 7, 0, 7), Spacing = 6 };
-            // A duet sings from the right, so its lines sit on the right.
-            if (settings.DuetSides && line.Voice == LyricVoice.Duet)
-            {
-                host.HorizontalAlignment = HorizontalAlignment.Right;
-                row.Words.HorizontalAlignment = HorizontalAlignment.Right;
-            }
+            // The Mac's sides: a duet sings from the right when Duet Sides is on, and a
+            // group sings together in the middle. Everything else sits on the left.
+            var side = settings.DuetSides && line.Voice == LyricVoice.Duet
+                ? HorizontalAlignment.Right
+                : line.Voice == LyricVoice.Together ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+            host.HorizontalAlignment = side;
+            row.Words.HorizontalAlignment = side;
+            row.Background.HorizontalAlignment = side;
+            var textSide = side == HorizontalAlignment.Right
+                ? TextAlignment.Right
+                : side == HorizontalAlignment.Center ? TextAlignment.Center : TextAlignment.Left;
 
             host.Children.Add(row.Words);
 
@@ -232,10 +253,31 @@ internal sealed class LyricsPanel : IDisposable
                 Seek?.Invoke(line.Time);
             };
 
-            foreach (var word in line.Words)
+            if (line.Words.Count == 0)
             {
-                var item = MakeWord(word, fontSize);
-                row.WordItems.Add(item);
+                // Line-timed lyrics: there are no words to fill, so the line is set as text
+                // and lights as a whole when the song reaches it. Without this the row was
+                // empty, which is how a song could show nothing but the interlude dots.
+                var transform = new CompositeTransform();
+                var lineText = new TextBlock
+                {
+                    Text = line.Text.Length == 0 ? "♪" : line.Text,
+                    TextWrapping = TextWrapping.Wrap,
+                    TextAlignment = textSide,
+                    FontSize = fontSize,
+                    Foreground = Brush(0xFF),
+                    RenderTransform = transform,
+                };
+                row.RowTransform = transform;
+                row.Words.Children.Add(lineText);
+            }
+            else
+            {
+                foreach (var word in line.Words)
+                {
+                    var item = MakeWord(word, fontSize);
+                    row.WordItems.Add(item);
+                }
             }
 
             foreach (var word in line.Background)
@@ -259,24 +301,14 @@ internal sealed class LyricsPanel : IDisposable
             _rows.Add(row);
             _lyricLines.Add(line);
 
-            // A long silence between two lines shows three dots that fill until the next.
+            // A long silence after this line shows three dots that fill until the next one.
+            // The gap runs from the line's end, as the Mac measures it: measuring from the
+            // line's start put dots between ordinary consecutive lines.
             var next = index + 1 < lyrics.Lines.Count ? lyrics.Lines[index + 1] : null;
-            if (next is not null && next.Time - line.Time >= InterludeSeconds)
+            if (next is not null && line.End is { } lineEnd && next.Time - lineEnd >= InterludeSeconds)
             {
-                var dots = new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = 6,
-                    Margin = new Thickness(0, 4, 0, 4),
-                };
-                for (var dot = 0; dot < 3; dot++)
-                {
-                    var ellipse = new Ellipse { Width = 6, Height = 6, Fill = Brush(0x33) };
-                    dots.Children.Add(ellipse);
-                    row.Dots.Add(ellipse);
-                }
-
-                _lines.Children.Add(dots);
+                row.DotsHost = MakeDots(row.Dots);
+                _lines.Children.Add(row.DotsHost);
             }
         }
 
@@ -285,7 +317,29 @@ internal sealed class LyricsPanel : IDisposable
         _lines.Children.Add(_spacer);
 
         Reflow();
-    }    /// <summary>One word: its element, the mask it fills through, and its rise.</summary>
+    }
+
+    /// <summary>Three dots that fill in turn through an instrumental gap.</summary>
+    private static StackPanel MakeDots(List<Ellipse> dots)
+    {
+        var host = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Margin = new Thickness(0, 4, 0, 4),
+            Visibility = Visibility.Collapsed,
+        };
+        for (var dot = 0; dot < 3; dot++)
+        {
+            var ellipse = new Ellipse { Width = 6, Height = 6, Fill = Brush(0x4D) };
+            host.Children.Add(ellipse);
+            dots.Add(ellipse);
+        }
+
+        return host;
+    }
+
+    /// <summary>One word: its element, the mask it fills through, and its rise.</summary>
     private Word MakeWord(LyricWord word, double fontSize)
     {
         var fill = new LinearGradientBrush
@@ -339,7 +393,12 @@ internal sealed class LyricsPanel : IDisposable
 
         foreach (var row in _rows)
         {
-            LayOut(row.Words, row.WordItems, width);
+            // A line-timed row holds its line text directly; only word rows are laid out.
+            if (row.WordItems.Count > 0)
+            {
+                LayOut(row.Words, row.WordItems, width);
+            }
+
             if (row.BackgroundItems.Count > 0)
             {
                 LayOut(row.Background, row.BackgroundItems, width);
@@ -415,7 +474,14 @@ internal sealed class LyricsPanel : IDisposable
         }
 
         var index = Lyrics.IndexOf(_position, _lyricLines) ?? -1;
-        if (index < 0 || index >= _rows.Count)
+        if (index < 0)
+        {
+            // Before the first line (the intro): still paint, so its dots fill.
+            Paint();
+            return;
+        }
+
+        if (index >= _rows.Count)
         {
             return;
         }
@@ -452,10 +518,20 @@ internal sealed class LyricsPanel : IDisposable
             GlideTo(_current);
         }
 
+        var time = _position;
+        PaintInterlude(time);
+
         foreach (var row in _rows)
         {
             // The rows step back into place with a spring of their own.
             row.Words.Opacity = Approach(row.Words.Opacity, row.Opacity);
+            if (row.RowTransform is { } transform)
+            {
+                // A line-timed row has no words to scale one by one, so its whole line does it.
+                transform.ScaleX = Approach(transform.ScaleX, row.Scale);
+                transform.ScaleY = transform.ScaleX;
+            }
+
             foreach (var word in row.WordItems)
             {
                 word.Transform.ScaleX = Approach(word.Transform.ScaleX, row.Scale);
@@ -469,7 +545,6 @@ internal sealed class LyricsPanel : IDisposable
             return;
         }
 
-        var time = _position;
         var motion = Koda.Core.Settings.Current.LyricsMotion;
         foreach (var word in current.WordItems)
         {
@@ -480,21 +555,83 @@ internal sealed class LyricsPanel : IDisposable
         {
             Paint(word, time, motion);
         }
+    }
 
-        // The interlude dots fill while the silence lasts.
-        foreach (var other in _rows)
+    /// <summary>
+    /// The three dots of a gap: before the first line, or after the line that just ended,
+    /// while the gap lasts. Only one gap is ever on screen, as on the Mac. The gap is
+    /// measured from the line's end; measuring from its start put dots after every line.
+    /// </summary>
+    private void PaintInterlude(double time)
+    {
+        Row? active = null;
+        var leading = false;
+        var progress = 0.0;
+
+        var current = Lyrics.IndexOf(time, _lyricLines);
+        if (current is null)
         {
-            if (other.Dots.Count == 0)
+            if (_lyricLines.Count > 0 && _lyricLines[0].Time >= InterludeSeconds && time >= 0)
+            {
+                leading = true;
+                progress = Math.Clamp(time / _lyricLines[0].Time, 0, 1);
+            }
+        }
+        else
+        {
+            var index = current.Value;
+            if (index + 1 < _lyricLines.Count &&
+                _lyricLines[index].End is { } end &&
+                _lyricLines[index + 1].Time - end >= InterludeSeconds &&
+                time > end + 0.3)
+            {
+                active = _rows[index];
+                progress = Math.Clamp((time - end) / (_lyricLines[index + 1].Time - end), 0, 1);
+                // The line just sung rests while the gap plays, as it does on the Mac.
+                active.Opacity = 0.42;
+                active.Scale = 0.97;
+            }
+        }
+
+        foreach (var row in _rows)
+        {
+            if (row.DotsHost is null || ReferenceEquals(row, active))
             {
                 continue;
             }
 
-            var fill = Math.Clamp((time - other.Line.Time) / InterludeSeconds, 0, 1);
-            for (var dot = 0; dot < other.Dots.Count; dot++)
+            row.DotsHost.Visibility = Visibility.Collapsed;
+        }
+
+        if (active?.DotsHost is { } host)
+        {
+            host.Visibility = Visibility.Visible;
+            FillDots(active.Dots, progress);
+        }
+        else if (current is { } index && index < _rows.Count)
+        {
+            // Coming back out of a gap (a seek, a replay) lights the line again.
+            _rows[index].Opacity = 1;
+            _rows[index].Scale = 1;
+        }
+
+        if (_leadingDots is not null)
+        {
+            _leadingDots.Visibility = leading ? Visibility.Visible : Visibility.Collapsed;
+            if (leading)
             {
-                var threshold = (double)(dot + 1) / other.Dots.Count;
-                other.Dots[dot].Fill = Brush(fill >= threshold ? (byte)0x99 : (byte)0x33);
+                FillDots(_leadingDotItems, progress);
             }
+        }
+    }
+
+    private static void FillDots(IReadOnlyList<Ellipse> dots, double progress)
+    {
+        for (var dot = 0; dot < dots.Count; dot++)
+        {
+            var fill = Math.Clamp(progress * dots.Count - dot, 0, 1);
+            var alpha = (byte)(0x4D + (0xFF - 0x4D) * fill);
+            dots[dot].Fill = Brush(alpha);
         }
     }
 

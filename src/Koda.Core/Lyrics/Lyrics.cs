@@ -92,7 +92,7 @@ public sealed class Lyrics
         var wordStamp = new Regex(@"<(\d{1,3}):(\d{1,2}(?:[.:]\d{1,3})?)>");
 
         var lines = new List<(double Time, string Text, List<LyricWord> Words)>();
-        foreach (var raw in text.Split('\n'))
+        foreach (var raw in text.Split(['\r', '\n']))
         {
             var matches = stamp.Matches(raw);
             if (matches.Count == 0)
@@ -151,7 +151,10 @@ public sealed class Lyrics
             var fallbackEnd = nextLine is { } next ? Math.Max(next, line.Time) : line.Time + 5;
             var words = Complete(line.Words, line.End ?? fallbackEnd);
             var background = Complete(line.Background, line.End ?? fallbackEnd);
-            var end = line.End ?? (words.Concat(background).Select(w => w.End).DefaultIfEmpty(line.Time).Max());
+            // A line with no word timings ends where the next line starts, not where it starts:
+            // a zero-length line would look like an instrumental gap to the panel.
+            var ends = words.Concat(background).Select(w => w.End).ToList();
+            var end = line.End ?? (ends.Count > 0 ? ends.Max() : nextLine);
             result.Add(line with { Id = index, Words = words, Background = background, End = end });
         }
 
