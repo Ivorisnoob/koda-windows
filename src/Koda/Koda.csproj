@@ -59,7 +59,8 @@
        resources for the same reason. Both go into the publish set as well. -->
   <Target Name="KodaIncludeCompiledXamlInPublish"
           AfterTargets="AddProcessedXamlFilesToCopyLocal"
-          BeforeTargets="ComputeFilesToPublish">
+          BeforeTargets="ComputeFilesToPublish"
+          Condition="'$(WindowsPackageType)' != 'MSIX'">
     <ItemGroup>
       <_KodaCompiledXaml Include="@(_ProcessedXamlFilesToCopyLocalWithTargetPath)">
         <PublishRelativePath>%(TargetPath)</PublishRelativePath>
@@ -71,7 +72,7 @@
     </ItemGroup>
   </Target>
 
-  <Target Name="KodaIncludeAppPriInPublish" BeforeTargets="ComputeFilesToPublish">
+  <Target Name="KodaIncludeAppPriInPublish" BeforeTargets="ComputeFilesToPublish" Condition="'$(WindowsPackageType)' != 'MSIX'">
     <ItemGroup>
       <_KodaAppPri Include="$(OutDir)$(TargetName).pri" Condition="Exists('$(OutDir)$(TargetName).pri')" />
       <ResolvedFileToPublish Include="@(_KodaAppPri)">
