@@ -14,6 +14,7 @@
   <img src="https://img.shields.io/badge/.NET-10-512BD4?style=for-the-badge&logo=dotnet&logoColor=white" alt=".NET 10"/>
   <img src="https://img.shields.io/badge/WinUI%203-6750A4?style=for-the-badge&logo=windows&logoColor=white" alt="WinUI 3"/>
   <img src="https://img.shields.io/badge/license-GPL--3.0-8B4513?style=for-the-badge&label=license" alt="GPL-3.0 license"/>
+  <a href="https://t.me/ivorisnoob_chat"><img src="https://img.shields.io/badge/Telegram-community-26A5E4?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram community"/></a>
 </p>
 
 Koda is a family of apps: one native app per operating system, each built with that platform's own
@@ -22,6 +23,9 @@ design system. [Koda for Android](https://github.com/Ivorisnoob/Koda) and
 the Windows one - WinUI 3, Fluent, Mica, and the Windows shell's own surfaces.
 
 No official YouTube API key, no account, no ads in the app.
+
+Questions, bug reports and ideas are welcome in the [Telegram community](https://t.me/ivorisnoob_chat),
+shared with Koda for Android and the rest of the family.
 
 ## Download
 
@@ -127,6 +131,12 @@ given - come from one script. The MSI is built with the [WiX Toolset](https://wi
 
 The engine talks to YouTube's InnerTube endpoints directly. Responses are recorded into fixtures
 and the parsers are written against those, so the test suite runs offline and needs no account.
+
+## Community
+
+Join the [Koda Telegram community](https://t.me/ivorisnoob_chat) for releases, help and feedback
+on every Koda, Windows and Android alike. Bugs can also go to the
+[issue tracker](https://github.com/Ivorisnoob/koda-windows/issues).
 
 ## License
 
