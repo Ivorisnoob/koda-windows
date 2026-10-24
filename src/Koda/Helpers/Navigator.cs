@@ -90,6 +90,7 @@ public static class SongMenu
         var liked = App.Library.IsLiked(song);
         menu.Items.Add(Item(liked ? "Remove from Liked" : "Add to Liked", liked ? "\uEB52" : "\uEB51", () => App.Library.ToggleLike(song)));
         menu.Items.Add(PlaylistSubmenu(song));
+        menu.Items.Add(DownloadItem(song));
         menu.Items.Add(Item("Share…", "\uE72D", () =>
         {
             if (App.Shell is { } shell)
@@ -97,6 +98,7 @@ public static class SongMenu
                 ShareLink.Show(shell.Handle, song);
             }
         }));
+        menu.Items.Add(SuggestLessItem(song));
         if (extra is not null)
         {
             var actions = extra.ToArray();
@@ -126,6 +128,64 @@ public static class SongMenu
         }
 
         return menu;
+    }
+
+    /// <summary>Download, or the way back out of one: what it says follows the song's download.</summary>
+    public static MenuFlyoutItem DownloadItem(Song song)
+    {
+        var state = App.Downloads.StateOf(song);
+        return state.Phase switch
+        {
+            Koda.Core.Storage.Downloads.Phase.Downloaded => Item("Remove download", "", () =>
+            {
+                App.Downloads.Remove([song]);
+                App.Shell?.Note($"Removed “{song.Title}” from downloads.");
+            }),
+            Koda.Core.Storage.Downloads.Phase.None => Item("Download", "", () =>
+            {
+                App.Downloads.Download([song]);
+                App.Shell?.Note($"Downloading “{song.Title}”.");
+            }),
+            _ => Item("Cancel download", "", () => App.Downloads.Remove([song])),
+        };
+    }
+
+    /// <summary>"Suggest less" for a song or the artists on it: kept out of Home, mixes, radio and
+    /// autoplay from then on. The playing song, turned down, is skipped at once.</summary>
+    public static MenuFlyoutItemBase SuggestLessItem(Song song)
+    {
+        var library = App.Library;
+        if (library.NotInterested.Songs.Exists(s => s.Id == song.Id))
+        {
+            return Item("Suggest this song again", "", () => library.Unhide(song));
+        }
+
+        var artists = song.Artists.Where(a => a.Id is not null).ToArray();
+        if (artists.Length == 0)
+        {
+            return Item("Suggest less of this song", "", () => Hide(song, () => library.Hide(song)));
+        }
+
+        var submenu = new MenuFlyoutSubItem { Text = "Suggest less", Icon = new FontIcon { Glyph = "" } };
+        submenu.Items.Add(Item("This song", "", () => Hide(song, () => library.Hide(song))));
+        foreach (var artist in artists)
+        {
+            submenu.Items.Add(library.IsUnwanted(artist)
+                ? Item($"Suggest {artist.Name} again", "", () => library.Unhide(artist))
+                : Item($"Songs by {artist.Name}", "", () => Hide(song, () => library.Hide(artist))));
+        }
+
+        return submenu;
+    }
+
+    private static void Hide(Song song, Action change)
+    {
+        change();
+        App.Shell?.Note($"Koda will suggest less like “{song.Title}”.");
+        if (PlaybackService.Instance.CurrentSong?.Id == song.Id && App.Library.IsUnwanted(song))
+        {
+            _ = PlaybackService.Instance.NextAsync();
+        }
     }
 
     /// <summary>The listener's playlists, as Music's own Add to Playlist submenu, with New Playlist first.</summary>

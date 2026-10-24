@@ -115,6 +115,10 @@ public sealed partial class PlaylistPage : Page
         Art.SetSource(HeroArt, page.Playlist.Artwork);
         Description.Text = page.Description ?? "";
         Description.Visibility = page.Description is null ? Visibility.Collapsed : Visibility.Visible;
+        DownloadButton.Title = page.Playlist.Title;
+        DownloadButton.Songs = _songs.ToArray();
+        // A long playlist arrives in pages; Download fetches the rest first.
+        DownloadButton.AllSongs = AllSongsAsync;
         UpdateSave();
     }
 

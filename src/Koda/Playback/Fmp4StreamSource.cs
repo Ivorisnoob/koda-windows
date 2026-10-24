@@ -13,6 +13,16 @@ namespace Koda.Playback;
 /// through <see cref="Fmp4Audio"/>. MF's own MP4 source opens YouTube's fragmented
 /// files and ends at once, so it is never handed the container. Seeking lands on
 /// the frame at or before the asked time.
+///
+/// Two rules keep the playhead where the listener left it:
+/// <list type="bullet">
+/// <item>A start with no position is Media Foundation resuming (after a pause, or after
+/// the audio graph was rebuilt): the source carries on from where it was. Reading it
+/// as "from the top" sent a song back to its first second.</item>
+/// <item>Every start bumps an epoch. A sample read that was in flight across a seek
+/// finds the epoch moved and starts over from the new place, rather than writing the
+/// old place back over it.</item>
+/// </list>
 /// </summary>
 internal sealed class Fmp4StreamSource
 {
@@ -23,6 +33,9 @@ internal sealed class Fmp4StreamSource
     private int _next;
     /// <summary>Where the next fragment starts when the index named no time for it.</summary>
     private long _nextStart;
+    /// <summary>Bumped by every start; reads begun under an older one are dropped.</summary>
+    private int _epoch;
+    private bool _started;
 
     private Fmp4StreamSource(Fmp4Audio audio) => _audio = audio;
 
@@ -45,19 +58,36 @@ internal sealed class Fmp4StreamSource
     private void OnStarting(MediaStreamSource sender, MediaStreamSourceStartingEventArgs args)
     {
         var request = args.Request;
+        lock (_lock)
+        {
+            // No position: resume from the current one. Only the very first start, before
+            // anything was read, begins at the top.
+            if (request.StartPosition is null && _started)
+            {
+                return;
+            }
+        }
+
         var deferral = request.GetDeferral();
         _ = StartAsync(request, deferral);
     }
 
     private async Task StartAsync(MediaStreamSourceStartingRequest request, MediaStreamSourceStartingRequestDeferral deferral)
     {
+        int epoch;
+        lock (_lock)
+        {
+            epoch = ++_epoch;
+            _started = true;
+        }
+
         try
         {
             var target = request.StartPosition ?? TimeSpan.Zero;
             var ticks = (long)(target.TotalSeconds * _audio.Timescale);
             var fragment = _audio.FragmentAt(ticks);
-            var frames = await _audio.FramesAsync(fragment, _audio.Fragments[fragment].StartTicks >= 0 ? _audio.Fragments[fragment].StartTicks : 0)
-                .ConfigureAwait(false);
+            var start = _audio.Fragments[fragment].StartTicks;
+            var frames = await _audio.FramesAsync(fragment, start >= 0 ? start : 0).ConfigureAwait(false);
             var index = 0;
             while (index + 1 < frames.Length && frames[index + 1].StartTicks <= ticks)
             {
@@ -66,6 +96,11 @@ internal sealed class Fmp4StreamSource
 
             lock (_lock)
             {
+                if (epoch != _epoch)
+                {
+                    return; // a later start already moved the source
+                }
+
                 _fragment = fragment;
                 _frames = frames;
                 _next = index;
@@ -79,7 +114,8 @@ internal sealed class Fmp4StreamSource
         }
         catch (Exception)
         {
-            // A seek that cannot be resolved ends here; the service's failure path reloads the track.
+            // A seek that cannot be resolved ends here; the next sample read fails and the
+            // service's failure path reloads the track where it was.
         }
         finally
         {
@@ -98,46 +134,70 @@ internal sealed class Fmp4StreamSource
     {
         try
         {
-            Fmp4Audio.Frame frame;
             while (true)
             {
+                Fmp4Audio.Frame frame = default;
+                bool haveFrame;
                 int fragment;
+                int epoch;
+                long nextStart;
                 lock (_lock)
                 {
-                    if (_next < _frames.Length)
+                    epoch = _epoch;
+                    haveFrame = _next < _frames.Length;
+                    if (haveFrame)
                     {
                         frame = _frames[_next++];
-                        break;
                     }
 
                     fragment = _fragment + 1;
+                    nextStart = _nextStart;
                 }
 
-                if (fragment >= _audio.Fragments.Count)
+                if (!haveFrame)
                 {
-                    request.Sample = null; // the end of the song
-                    return;
+                    if (fragment >= _audio.Fragments.Count)
+                    {
+                        request.Sample = null; // the end of the song
+                        return;
+                    }
+
+                    var frames = await _audio.FramesAsync(fragment, nextStart).ConfigureAwait(false);
+                    lock (_lock)
+                    {
+                        // A seek while the fragment was read: its frames belong to the old place.
+                        if (epoch == _epoch && _fragment + 1 == fragment)
+                        {
+                            _fragment = fragment;
+                            _frames = frames;
+                            _next = 0;
+                            if (frames.Length > 0) _nextStart = frames[^1].StartTicks + frames[^1].DurationTicks;
+                        }
+                    }
+
+                    continue;
                 }
 
-                var frames = await _audio.FramesAsync(fragment, _nextStart).ConfigureAwait(false);
+                var bytes = await _audio.AdtsFrameAsync(frame).ConfigureAwait(false);
                 lock (_lock)
                 {
-                    _fragment = fragment;
-                    _frames = frames;
-                    _next = 0;
-                    if (frames.Length > 0) _nextStart = frames[^1].StartTicks + frames[^1].DurationTicks;
+                    if (epoch != _epoch)
+                    {
+                        continue; // read across a seek: take the frame at the new place instead
+                    }
                 }
-            }
 
-            var bytes = await _audio.AdtsFrameAsync(frame).ConfigureAwait(false);
-            var sample = MediaStreamSample.CreateFromBuffer(
-                bytes.AsBuffer(), TimeSpan.FromSeconds((double)frame.StartTicks / _audio.Timescale));
-            sample.Duration = TimeSpan.FromSeconds((double)frame.DurationTicks / _audio.Timescale);
-            request.Sample = sample;
+                var sample = MediaStreamSample.CreateFromBuffer(
+                    bytes.AsBuffer(), TimeSpan.FromSeconds((double)frame.StartTicks / _audio.Timescale));
+                sample.Duration = TimeSpan.FromSeconds((double)frame.DurationTicks / _audio.Timescale);
+                request.Sample = sample;
+                return;
+            }
         }
         catch (Exception)
         {
-            // A fetch that died ends the track here; the service's failure path reloads it.
+            // A fetch that died ends the samples here; the service sees an end that came
+            // too early and reloads the song from where it stopped.
             request.Sample = null;
         }
         finally

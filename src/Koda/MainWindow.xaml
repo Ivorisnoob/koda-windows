@@ -136,6 +136,11 @@
                         <FontIcon Glyph="&#xE9D9;" />
                     </muxc:NavigationViewItem.Icon>
                 </muxc:NavigationViewItem>
+                <muxc:NavigationViewItem Content="Last.fm" Tag="lastfm" ToolTipService.ToolTip="Scrobble what you play to Last.fm">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xEC05;" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
 
                 <muxc:NavigationViewItemHeader Content="Your playlists" />
                 <muxc:NavigationViewItem x:Name="NewPlaylistItem" Content="New Playlist" Tag="new-playlist" SelectsOnInvoked="False" ToolTipService.ToolTip="Make a new playlist">
@@ -146,73 +151,44 @@
             </muxc:NavigationView.MenuItems>
 
             <muxc:NavigationView.FooterMenuItems>
+                <!-- What plays next and today's listening, as ordinary two-line rows: they line up
+                     with the rest of the pane, keep its hover and focus, and shrink to their icon
+                     when the pane is compact. -->
                 <muxc:NavigationViewItem
                     x:Name="UpNextItem"
                     Tag="up-next"
                     SelectsOnInvoked="False"
-                    Visibility="Collapsed"
-                    Padding="8,6"
-                    HorizontalContentAlignment="Stretch"
-                    AutomationProperties.Name="Up next">
-                    <Border Padding="8" CornerRadius="8" Background="{ThemeResource SubtleFillColorSecondaryBrush}">
-                        <StackPanel Spacing="6">
-                            <Grid>
-                                <TextBlock Text="Up next" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
-                                <HyperlinkButton Content="Show all" HorizontalAlignment="Right" Padding="0" FontSize="11" Click="OnShowQueueClick" />
-                            </Grid>
-                            <Button
-                                x:Name="UpNextButton"
-                                Background="Transparent"
-                                BorderThickness="0"
-                                Padding="4"
-                                HorizontalAlignment="Stretch"
-                                HorizontalContentAlignment="Stretch"
-                                Click="OnUpNextClick"
-                                ToolTipService.ToolTip="Play the next song">
-                                <Grid ColumnSpacing="8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="28" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <Border Width="28" Height="28" CornerRadius="5" Background="{ThemeResource ControlFillColorDefaultBrush}">
-                                        <Grid>
-                                            <FontIcon Glyph="&#xE8D6;" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                                            <Image x:Name="UpNextArt" helpers:Art.Pixels="28" Stretch="UniformToFill" />
-                                        </Grid>
-                                    </Border>
-                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="0">
-                                        <TextBlock x:Name="UpNextTitle" Style="{ThemeResource CaptionTextBlockStyle}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
-                                        <TextBlock x:Name="UpNextArtist" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
-                                    </StackPanel>
-                                </Grid>
-                            </Button>
-                        </StackPanel>
-                    </Border>
+                    Visibility="Collapsed">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8D6;" />
+                    </muxc:NavigationViewItem.Icon>
+                    <StackPanel VerticalAlignment="Center" Margin="0,5">
+                        <TextBlock x:Name="UpNextTitle" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                        <TextBlock
+                            x:Name="UpNextArtist"
+                            Style="{ThemeResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            TextTrimming="CharacterEllipsis"
+                            TextWrapping="NoWrap" />
+                    </StackPanel>
                 </muxc:NavigationViewItem>
 
                 <muxc:NavigationViewItem
                     x:Name="GlanceItem"
                     Tag="glance"
-                    SelectsOnInvoked="False"
-                    Padding="8,6"
-                    HorizontalContentAlignment="Stretch"
-                    ToolTipService.ToolTip="Listening Stats"
-                    AutomationProperties.Name="Listening today and streak">
-                    <Border Padding="8" CornerRadius="8" Background="{ThemeResource SubtleFillColorSecondaryBrush}">
-                        <Grid ColumnSpacing="10">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <Border Width="28" Height="28" CornerRadius="7" Background="{ThemeResource AccentFillColorSecondaryBrush}">
-                                <FontIcon Glyph="&#xE7F6;" FontSize="13" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
-                            </Border>
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="0">
-                                <TextBlock x:Name="GlanceListened" Style="{ThemeResource CaptionTextBlockStyle}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
-                                <TextBlock x:Name="GlanceStreak" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
-                            </StackPanel>
-                        </Grid>
-                    </Border>
+                    SelectsOnInvoked="False">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE7F6;" />
+                    </muxc:NavigationViewItem.Icon>
+                    <StackPanel VerticalAlignment="Center" Margin="0,5">
+                        <TextBlock x:Name="GlanceListened" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                        <TextBlock
+                            x:Name="GlanceStreak"
+                            Style="{ThemeResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            TextTrimming="CharacterEllipsis"
+                            TextWrapping="NoWrap" />
+                    </StackPanel>
                 </muxc:NavigationViewItem>
             </muxc:NavigationView.FooterMenuItems>
 

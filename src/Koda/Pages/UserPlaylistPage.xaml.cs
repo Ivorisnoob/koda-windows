@@ -55,6 +55,8 @@ public sealed partial class UserPlaylistPage : Page
         }
 
         _songs = playlist.Songs;
+        DownloadButton.Title = playlist.Name;
+        DownloadButton.Songs = playlist.Songs;
         HeroTitle.Text = playlist.Name;
         HeroDetail.Text = Format.SongList(_songs);
         Tracks.ItemsSource = playlist.Songs.Select((s, i) => new TrackRow(i + 1, s)).ToArray();

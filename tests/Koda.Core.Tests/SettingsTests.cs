@@ -45,7 +45,11 @@ public class SettingsTests
             SavesListeningHistory = false,
             SavesSearchHistory = false,
             Theme = Theme.Dark,
-            LyricsSize = LyricsSize.Large,
+            LyricsFontSize = 26,
+            NormalizesVolume = false,
+            Crossfades = false,
+            CrossfadeSeconds = 9,
+            SharesOnDiscord = true,
             CacheLimit = CacheLimit.Large,
             DisabledLyricsSources = [LyricsSource.BetterLyrics],
         };
@@ -63,7 +67,11 @@ public class SettingsTests
         Assert.False(back.SavesListeningHistory);
         Assert.False(back.SavesSearchHistory);
         Assert.Equal(Theme.Dark, back.Theme);
-        Assert.Equal(LyricsSize.Large, back.LyricsSize);
+        Assert.Equal(26, back.LyricsFontSize);
+        Assert.False(back.NormalizesVolume);
+        Assert.False(back.Crossfades);
+        Assert.Equal(9, back.CrossfadeSeconds);
+        Assert.True(back.SharesOnDiscord);
         Assert.Equal(CacheLimit.Large, back.CacheLimit);
         Assert.False(back.IsEnabled(LyricsSource.BetterLyrics));
         Assert.True(back.IsEnabled(LyricsSource.YouLyPlus));
@@ -106,5 +114,46 @@ public class SettingsTests
 
         Assert.Equal(3, settings.LyricsSourceOrder.Count);
         Assert.Equal(LyricsSource.Lrclib, settings.LyricsSourceOrder[0]);
+    }
+
+    [Fact]
+    public void TheOldLyricsSizeBecomesAPointSize()
+    {
+        var file = Path.Combine(Fixtures.Scratch, $"settings-old-size-{Guid.NewGuid():N}.json");
+        File.WriteAllText(file, """{ "lyricsSize": "Large" }""");
+
+        var settings = Settings.Load(file);
+
+        Assert.Equal(24, settings.LyricsFontSize);
+        // The old name reads as nothing, so it is never written back.
+        Assert.Null(settings.LegacyLyricsSize);
+    }
+
+    [Fact]
+    public void AFileWithoutTheNewerChoicesTakesTheirDefaults()
+    {
+        var file = Path.Combine(Fixtures.Scratch, $"settings-older-{Guid.NewGuid():N}.json");
+        File.WriteAllText(file, """{ "volume": 70 }""");
+
+        var settings = Settings.Load(file);
+
+        Assert.Equal(70, settings.Volume);
+        Assert.True(settings.NormalizesVolume);
+        Assert.True(settings.Crossfades);
+        Assert.Equal(5, settings.CrossfadeSeconds);
+        Assert.False(settings.SharesOnDiscord);
+        Assert.Equal(20, settings.LyricsFontSize);
+    }
+
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(40, 12)]
+    [InlineData(6.4, 6)]
+    [InlineData(double.NaN, 5)]
+    public void TheOverlapStaysBetweenOneAndTwelveSeconds(double asked, double kept)
+    {
+        var settings = new Settings { CrossfadeSeconds = asked };
+
+        Assert.Equal(kept, settings.CrossfadeSeconds);
     }
 }

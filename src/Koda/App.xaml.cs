@@ -27,6 +27,20 @@ public partial class App : Application
             CacheLimit = (long)Koda.Core.Settings.Current.CacheLimit,
         };
 
+    /// <summary>Songs the listener downloaded, and the work of fetching them, two at a time.</summary>
+    public static Koda.Core.Storage.Downloads Downloads { get; } = new(
+        AudioStore,
+        (id, cancellation) => Koda.Services.EngineHost.Music.StreamAsync(id, cancellation),
+        id => Koda.Services.EngineHost.Music.StreamFailedAsync(id));
+
+    /// <summary>Scrobbling to Last.fm: the queue in the data root, the sign-in in the Windows
+    /// Credential Manager, so neither a copied data folder nor a backup carries the account.</summary>
+    public static Koda.Core.LastFm.LastFm LastFm { get; } =
+        new(DataDirectory, new Koda.Interop.CredentialStore("Koda/Last.fm"));
+
+    /// <summary>The playing song on the listener's Discord profile.</summary>
+    public static Koda.Core.Discord.DiscordPresence Discord { get; } = new();
+
     /// <summary>Likes, saved collections, history, stats: library.json in the data root.</summary>
     public static Koda.Core.Library Library { get; } = new(DataDirectory);
 
@@ -46,6 +60,10 @@ public partial class App : Application
         Koda.Interop.AppIdentity.Register();
 
         InitializeComponent();
+
+        // The toast channel registers before any activation is read: a notification
+        // clicked while Koda was closed arrives through NotificationInvoked.
+        Koda.Interop.Notifications.Initialize();
 
         // A crash leaves its real reason in the crash log (the Windows event log only shows 0xc000027b).
         UnhandledException += (_, e) => WriteCrash($"{e.Message}\n{e.Exception}");
@@ -85,10 +103,36 @@ public partial class App : Application
         Shell.Activate();
         Koda.Helpers.ShellChrome.ApplyTheme();
 
-        // A cold koda:// launch carries its URL on this process's command line.
+        // Downloads the last session left unfinished carry on, now the window is up.
+        Downloads.Start();
+
+        // Last.fm hears what plays: a play is announced when its sound starts and queued once
+        // enough of it was heard. Pausing listening history pauses scrobbling too.
+        var playback = Koda.Playback.PlaybackService.Instance;
+        playback.ItemStarted += item => LastFm.Started(item.Id, item.Song);
+        playback.ItemHeard += (item, seconds) => LastFm.Heard(seconds, item.Id, item.Song);
+        LastFm.IsPaused = !Settings.SavesListeningHistory;
+        Settings.Changed += settings => LastFm.IsPaused = !settings.SavesListeningHistory;
+        LastFm.SyncSoon();
+
+        // The Discord card follows what plays; it only shows while the listener has it on and
+        // listening history is on.
+        void ShareOnDiscord() => Discord.Update(
+            Settings.SharesOnDiscord && Settings.SavesListeningHistory,
+            playback.CurrentSong is { } song
+                ? Koda.Core.Discord.DiscordNowPlaying.Of(song, playback.DurationSeconds, playback.PositionSeconds, playback.IsPlaying)
+                : null);
+        playback.TrackChanged += ShareOnDiscord;
+        playback.PlayStateChanged += ShareOnDiscord;
+        playback.PositionTick += ShareOnDiscord;
+        Settings.Changed += _ => ShareOnDiscord();
+        ShareOnDiscord();
+
+        // A cold koda:// launch or a Jump List task carries its argument on this
+        // process's command line.
         if (Koda.Interop.SingleInstance.StartupArguments.Count > 0)
         {
-            Koda.Interop.ProtocolActivation.Handle(Shell, Koda.Interop.SingleInstance.StartupArguments);
+            HandleArguments(Shell, Koda.Interop.SingleInstance.StartupArguments);
         }
 
         // A second launch (taskbar, Start, Search, koda://) is redirected here by
@@ -101,8 +145,15 @@ public partial class App : Application
             var pending = Koda.Interop.SingleInstance.TakePendingArguments();
             if (pending.Length > 0 && Shell is { } shell)
             {
-                Koda.Interop.ProtocolActivation.Handle(shell, pending);
+                HandleArguments(shell, pending);
             }
         }));
+    }
+
+    /// <summary>Shell activations that arrive as arguments: Jump List tasks and koda:// links.</summary>
+    private static void HandleArguments(MainWindow shell, System.Collections.Generic.IReadOnlyList<string> args)
+    {
+        Koda.Interop.JumpList.Handle(shell, args);
+        Koda.Interop.ProtocolActivation.Handle(shell, args);
     }
 }

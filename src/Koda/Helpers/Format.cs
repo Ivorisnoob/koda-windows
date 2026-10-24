@@ -57,6 +57,10 @@ public static class Format
     /// <summary>A headline figure with the current culture's group separators.</summary>
     public static string Count(int value) => value.ToString("N0", CultureInfo.CurrentCulture);
 
+    /// <summary>"1.2 GB", "340 MB", "0 MB": the size of what is kept on disk.</summary>
+    public static string Bytes(long bytes) =>
+        bytes >= 1_000_000_000 ? $"{bytes / 1_000_000_000.0:F1} GB" : $"{bytes / 1_000_000} MB";
+
     /// <summary>"Today", "Yesterday", "Saturday 18 October", "18 October 2025".</summary>
     public static string Day(DateTimeOffset date)
     {

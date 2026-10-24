@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Koda.Core;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -57,6 +58,16 @@ internal sealed class LyricsPanel : IDisposable
     /// <summary>How wide the words sit from each other, as a part of the text size.</summary>
     private const double WordSpacing = 0.25;
 
+    /// <summary>A little tracking, so the lines breathe rather than read thin, as the Mac's do.</summary>
+    private const int Tracking = 20;
+
+    /// <summary>The line height, as a part of the text size: Apple's lyrics are airy.</summary>
+    private const double LineHeightFactor = 1.35;
+
+    /// <summary>The Text optical size of Segoe UI Variable: wider letterforms at reading sizes
+    /// than the Display cut, which is what made the lyrics look thin.</summary>
+    private static readonly FontFamily LyricFont = new("Segoe UI Variable Text");
+
     private readonly ScrollViewer _scroll;
     private readonly StackPanel _lines;
     private readonly Border _spacer = new();
@@ -103,9 +114,9 @@ internal sealed class LyricsPanel : IDisposable
         /// <summary>The dots' container; shown only while that gap is playing.</summary>
         public StackPanel? DotsHost { get; set; }
         /// <summary>How opaque the row is: the one being sung is full, the rest step back.</summary>
-        public double Opacity { get; set; } = 0.3;
+        public double Opacity { get; set; } = 0.36;
         /// <summary>How large the row is: the one being sung is full size.</summary>
-        public double Scale { get; set; } = 0.97;
+        public double Scale { get; set; } = 0.99;
     }
 
     public LyricsPanel(ScrollViewer scroll, StackPanel lines, DispatcherQueue queue)
@@ -155,6 +166,15 @@ internal sealed class LyricsPanel : IDisposable
         };
     }
 
+    /// <summary>A line's right-click menu asked to share it: the lines, and the one it was opened on.</summary>
+    public Action<IReadOnlyList<LyricLine>, int>? Share { get; set; }
+
+    /// <summary>The timed lines on show, for sharing from elsewhere (the player's More menu).</summary>
+    public IReadOnlyList<LyricLine> Lines => _lyricLines;
+
+    /// <summary>The line being sung, or the first one before it starts.</summary>
+    public int CurrentIndex => Math.Max(0, Lyrics.IndexOf(_position, _lyricLines) ?? 0);
+
     /// <summary>Called when a line is tapped: the song jumps to that line.</summary>
     public Action<double>? Seek { get; set; }
 
@@ -198,13 +218,14 @@ internal sealed class LyricsPanel : IDisposable
         if (!lyrics.IsSynced)
         {
             // Untimed lyrics are shown as they came: one block, no timing.
+            var size = Koda.Core.Settings.Current.LyricsFontSize;
             var plain = new TextBlock
             {
                 Text = lyrics.Plain,
                 TextWrapping = TextWrapping.Wrap,
-                FontSize = 18,
                 Foreground = Brush(0xD9),
             };
+            Shape(plain, size);
             _lines.Children.Add(plain);
             return;
         }
@@ -229,7 +250,7 @@ internal sealed class LyricsPanel : IDisposable
                 Background = new StackPanel { Spacing = 2, Opacity = 0.7 },
             };
 
-            var host = new StackPanel { Margin = new Thickness(0, 7, 0, 7), Spacing = 6 };
+            var host = new StackPanel { Margin = new Thickness(0, 8, 0, 8), Spacing = 6 };
             // The Mac's sides: a duet sings from the right when Duet Sides is on, and a
             // group sings together in the middle. Everything else sits on the left.
             var side = settings.DuetSides && line.Voice == LyricVoice.Duet
@@ -264,10 +285,10 @@ internal sealed class LyricsPanel : IDisposable
                     Text = line.Text.Length == 0 ? "♪" : line.Text,
                     TextWrapping = TextWrapping.Wrap,
                     TextAlignment = textSide,
-                    FontSize = fontSize,
                     Foreground = Brush(0xFF),
                     RenderTransform = transform,
                 };
+                Shape(lineText, fontSize);
                 row.RowTransform = transform;
                 row.Words.Children.Add(lineText);
             }
@@ -287,8 +308,8 @@ internal sealed class LyricsPanel : IDisposable
                     break; // the listener turned the backing vocals off
                 }
 
-                // Backing vocals are drawn at 70% of the sung line.
-                var item = MakeWord(word, fontSize * 0.7);
+                // Backing vocals are drawn at 70% of the sung line, a little lighter.
+                var item = MakeWord(word, fontSize * 0.7, soft: true);
                 row.BackgroundItems.Add(item);
             }
 
@@ -340,7 +361,7 @@ internal sealed class LyricsPanel : IDisposable
     }
 
     /// <summary>One word: its element, the mask it fills through, and its rise.</summary>
-    private Word MakeWord(LyricWord word, double fontSize)
+    private Word MakeWord(LyricWord word, double fontSize, bool soft = false)
     {
         var fill = new LinearGradientBrush
         {
@@ -362,11 +383,11 @@ internal sealed class LyricsPanel : IDisposable
             // sit together.
             Text = word.Text,
             Margin = new Thickness(0, 0, word.SpaceAfter ? fontSize * WordSpacing : 0, 0),
-            FontSize = fontSize,
             Foreground = fill,
             RenderTransform = transform,
             TextWrapping = TextWrapping.NoWrap,
         };
+        Shape(element, fontSize, soft);
 
         element.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
 
@@ -493,8 +514,8 @@ internal sealed class LyricsPanel : IDisposable
             foreach (var other in _rows)
             {
                 var distance = Math.Abs(_rows.IndexOf(other) - index);
-                other.Opacity = other == row ? 1 : distance <= 1 ? 0.42 : 0.3;
-                other.Scale = other == row ? 1 : 0.97;
+                other.Opacity = other == row ? 1 : distance <= 1 ? 0.5 : 0.36;
+                other.Scale = other == row ? 1 : 0.99;
             }
 
             if (!_userScrolled)
@@ -588,8 +609,8 @@ internal sealed class LyricsPanel : IDisposable
                 active = _rows[index];
                 progress = Math.Clamp((time - end) / (_lyricLines[index + 1].Time - end), 0, 1);
                 // The line just sung rests while the gap plays, as it does on the Mac.
-                active.Opacity = 0.42;
-                active.Scale = 0.97;
+                active.Opacity = 0.5;
+                active.Scale = 0.99;
             }
         }
 
@@ -736,6 +757,20 @@ internal sealed class LyricsPanel : IDisposable
 
     private static SolidColorBrush Brush(byte alpha) =>
         new(Windows.UI.Color.FromArgb(alpha, 0xFF, 0xFF, 0xFF));
+
+    /// <summary>The lyric type: the Text optical size, semibold, a little tracked out and airy.
+    /// The backing vocals are the same shape in a lighter weight.</summary>
+    private static void Shape(TextBlock block, double fontSize, bool soft = false)
+    {
+        block.FontFamily = LyricFont;
+        block.FontWeight = soft
+            ? Microsoft.UI.Text.FontWeights.Medium
+            : Microsoft.UI.Text.FontWeights.SemiBold;
+        block.FontSize = fontSize;
+        block.CharacterSpacing = Tracking;
+        block.LineHeight = Math.Round(fontSize * LineHeightFactor);
+        block.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
+    }
 
     public void Dispose()
     {

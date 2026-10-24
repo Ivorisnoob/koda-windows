@@ -1,0 +1,271 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Koda.Pages.LastFmPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Koda.Controls">
+    <Page.Resources>
+        <Style x:Key="LastFmCard" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+        </Style>
+        <Style x:Key="StepNumber" TargetType="Border">
+            <Setter Property="Width" Value="26" />
+            <Setter Property="Height" Value="26" />
+            <Setter Property="CornerRadius" Value="13" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="Background" Value="{ThemeResource AccentFillColorDefaultBrush}" />
+        </Style>
+        <Style x:Key="StepNumberText" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+        </Style>
+    </Page.Resources>
+
+    <ScrollViewer>
+        <StackPanel Margin="32,24,32,40" MaxWidth="1100" HorizontalAlignment="Stretch" Spacing="16">
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Spacing="2">
+                    <TextBlock Text="Last.fm" Style="{ThemeResource TitleTextBlockStyle}" />
+                    <TextBlock
+                        Text="Scrobbling"
+                        Style="{ThemeResource BodyTextBlockStyle}"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+                <ProgressRing
+                    x:Name="BusyRing"
+                    Grid.Column="1"
+                    Width="18"
+                    Height="18"
+                    IsActive="False"
+                    VerticalAlignment="Center"
+                    AutomationProperties.Name="Talking to Last.fm" />
+                <Button
+                    x:Name="SyncButton"
+                    Grid.Column="2"
+                    VerticalAlignment="Center"
+                    Click="OnSyncClick"
+                    ToolTipService.ToolTip="Send waiting plays and refresh (Ctrl+R)"
+                    AutomationProperties.Name="Sync now">
+                    <Button.KeyboardAccelerators>
+                        <KeyboardAccelerator Modifiers="Control" Key="R" />
+                    </Button.KeyboardAccelerators>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE895;" FontSize="14" />
+                        <TextBlock Text="Sync now" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+
+            <InfoBar x:Name="ErrorBar" Severity="Warning" IsClosable="True" Closed="OnMessageClosed" />
+            <InfoBar x:Name="NoticeBar" Severity="Informational" IsClosable="True" Closed="OnMessageClosed" />
+
+            <!-- Before connecting: the three steps, in one card. -->
+            <Border x:Name="ConnectCard" Style="{StaticResource LastFmCard}" Padding="28" MaxWidth="680" HorizontalAlignment="Left">
+                <StackPanel Spacing="24">
+                    <Grid ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Width="56" Height="56" CornerRadius="12" Background="{ThemeResource AccentFillColorDefaultBrush}" VerticalAlignment="Top">
+                            <FontIcon Glyph="&#xEC05;" FontSize="26" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                        </Border>
+                        <StackPanel Grid.Column="1" Spacing="4">
+                            <TextBlock Text="Scrobble to Last.fm" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                            <TextBlock
+                                Text="Keep a record of what you play in Koda on your Last.fm profile. Koda never sees your password: you approve it on Last.fm's own page."
+                                Style="{ThemeResource BodyTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Grid>
+
+                    <StackPanel x:Name="Steps" Spacing="20">
+                        <Grid ColumnSpacing="14">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Style="{StaticResource StepNumber}"><TextBlock Text="1" Style="{StaticResource StepNumberText}" /></Border>
+                            <StackPanel Grid.Column="1" Spacing="8">
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="Create your API account" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                                    <TextBlock
+                                        Text="It's free. Any name and description will do; leave Callback URL empty. Each person uses their own, so no keys ship with Koda."
+                                        Style="{ThemeResource CaptionTextBlockStyle}"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        TextWrapping="Wrap" />
+                                </StackPanel>
+                                <HyperlinkButton Content="Create API account" NavigateUri="https://www.last.fm/api/account/create" Padding="0" />
+                            </StackPanel>
+                        </Grid>
+                        <Grid ColumnSpacing="14">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Style="{StaticResource StepNumber}"><TextBlock Text="2" Style="{StaticResource StepNumberText}" /></Border>
+                            <StackPanel Grid.Column="1" Spacing="8" MaxWidth="440" HorizontalAlignment="Left">
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="Enter its keys" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                                    <TextBlock
+                                        Text="Both are on the page Last.fm shows after you create the account."
+                                        Style="{ThemeResource CaptionTextBlockStyle}"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBox
+                                    x:Name="ApiKeyBox"
+                                    Header="API key"
+                                    PlaceholderText="32 letters and digits"
+                                    IsSpellCheckEnabled="False"
+                                    MaxLength="64"
+                                    TextChanged="OnKeysChanged" />
+                                <PasswordBox
+                                    x:Name="SecretBox"
+                                    Header="Shared secret"
+                                    PlaceholderText="32 letters and digits"
+                                    MaxLength="64"
+                                    PasswordChanged="OnKeysChanged"
+                                    KeyDown="OnSecretKeyDown" />
+                            </StackPanel>
+                        </Grid>
+                        <Grid ColumnSpacing="14">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Style="{StaticResource StepNumber}"><TextBlock Text="3" Style="{StaticResource StepNumberText}" /></Border>
+                            <StackPanel Grid.Column="1" Spacing="8">
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="Approve Koda" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                                    <TextBlock
+                                        Text="Last.fm opens in your browser. Approve Koda there; Koda finishes connecting by itself."
+                                        Style="{ThemeResource CaptionTextBlockStyle}"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        TextWrapping="Wrap" />
+                                </StackPanel>
+                                <Button
+                                    x:Name="ConnectButton"
+                                    Style="{ThemeResource AccentButtonStyle}"
+                                    IsEnabled="False"
+                                    Click="OnConnectClick">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon Glyph="&#xE71B;" FontSize="14" />
+                                        <TextBlock Text="Connect to Last.fm" />
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- A token waits for the listener's approval in the browser. -->
+                    <StackPanel x:Name="Waiting" Spacing="12" Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <ProgressRing IsActive="True" Width="18" Height="18" />
+                            <TextBlock Text="Waiting for you to approve Koda on Last.fm" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                        </StackPanel>
+                        <TextBlock
+                            Text="Koda connects the moment you approve it. The approval page is good for an hour."
+                            Style="{ThemeResource BodyTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="ApprovedButton" Style="{ThemeResource AccentButtonStyle}" Content="I've approved Koda" Click="OnApprovedClick" />
+                            <Button x:Name="ReopenButton" Content="Open Last.fm again" Click="OnReopenClick" />
+                            <Button x:Name="StartOverButton" Content="Start over" Click="OnStartOverClick" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <TextBlock
+                        Text="Your API keys and session stay in the Windows Credential Manager on this PC, never in a backup. Turn scrobbling off any time; pausing listening history pauses it too."
+                        Style="{ThemeResource CaptionTextBlockStyle}"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- Connected: the account beside its recent plays, above them in a narrow window. -->
+            <Grid x:Name="ConnectedView" ColumnSpacing="32" RowSpacing="28" SizeChanged="OnConnectedSizeChanged" Visibility="Collapsed">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition x:Name="AccountColumn" Width="320" />
+                    <ColumnDefinition x:Name="HistoryColumn" Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Border x:Name="AccountCard" Style="{StaticResource LastFmCard}" Padding="20" VerticalAlignment="Top">
+                    <StackPanel Spacing="16">
+                        <StackPanel Spacing="10">
+                            <PersonPicture x:Name="Avatar" Width="88" Height="88" HorizontalAlignment="Left" />
+                            <StackPanel Spacing="2">
+                                <TextBlock x:Name="NameText" Style="{ThemeResource SubtitleTextBlockStyle}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock x:Name="HandleText" Style="{ThemeResource BodyTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <StackPanel x:Name="PlayCountPanel" Spacing="0">
+                                <TextBlock x:Name="PlayCountText" FontSize="30" FontWeight="Bold" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                <TextBlock x:Name="PlayCountLabel" Style="{ThemeResource BodyTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <TextBlock x:Name="SinceText" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                        </StackPanel>
+
+                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="2" VerticalAlignment="Center">
+                                <TextBlock Text="Scrobble" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                                <TextBlock x:Name="StatusText" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch
+                                x:Name="ScrobbleSwitch"
+                                Grid.Column="1"
+                                OffContent=" "
+                                OnContent=" "
+                                VerticalAlignment="Center"
+                                AutomationProperties.Name="Scrobble"
+                                Toggled="OnScrobbleToggled" />
+                        </Grid>
+
+                        <TextBlock
+                            Text="A song counts once you've heard half of it, or four minutes. Videos aren't scrobbled. Offline plays wait on this PC and send in order later."
+                            Style="{ThemeResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            TextWrapping="Wrap" />
+
+                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                        <Grid>
+                            <HyperlinkButton x:Name="ProfileLink" Content="Open profile" Padding="0" />
+                            <Button HorizontalAlignment="Right" Content="Disconnect…" Click="OnDisconnectClick" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <StackPanel x:Name="HistoryPanel" Grid.Column="1" Spacing="12">
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="Recent scrobbles" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                        <TextBlock x:Name="UpdatedText" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                    <ContentControl x:Name="HistorySkeleton" HorizontalContentAlignment="Stretch" />
+                    <controls:ErrorState x:Name="HistoryEmpty" Visibility="Collapsed" />
+                    <StackPanel x:Name="HistoryDays" Spacing="12" />
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

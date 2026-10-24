@@ -95,6 +95,10 @@ public record Song(
         && Artwork == other.Artwork && IsVideo == other.IsVideo && Year == other.Year;
 
     public override int GetHashCode() => HashCode.Combine(Id, Title, ArtistLine, Artists.Length, Album, Duration, IsVideo, Year);
+
+    /// <summary>"Espresso, Sabrina Carpenter": what a list row with a song in it is called, which is
+    /// what a screen reader says for it. The record's own form ("Song { Id = … }") was read aloud.</summary>
+    public override string ToString() => string.IsNullOrEmpty(ArtistLine) ? Title : $"{Title}, {ArtistLine}";
 }
 
 /// <summary>Written as the Swift raw values ("Album", "EP", "Single") so library backups move between platforms.</summary>

@@ -76,6 +76,8 @@ public sealed partial class AlbumPage : Page
         Description.Visibility = page.Description is null ? Visibility.Collapsed : Visibility.Visible;
 
         _songs = page.Songs;
+        DownloadButton.Title = album.Title;
+        DownloadButton.Songs = page.Songs;
         Tracks.ItemsSource = page.Songs.Select((s, i) => new TrackRow(i + 1, s)).ToArray();
         Versions.Shelves = page.OtherVersions.Length > 0
             ? [ShelfView.Of("Other versions", page.OtherVersions.Select(a => (MusicItem)new MusicItem.AlbumRecord(a)))]

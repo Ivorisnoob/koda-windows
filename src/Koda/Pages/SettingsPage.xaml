@@ -7,17 +7,29 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
     <Page.Resources>
-        <!-- A row: what it is, what it does, and the control that changes it. -->
-        <Style x:Key="SettingRow" TargetType="Grid">
-            <Setter Property="ColumnSpacing" Value="16" />
-            <Setter Property="Margin" Value="0,0,0,10" />
+        <!-- A Windows Settings card: a hairline border, the card fill, and 4px corners.
+             Rows keep one 64px rhythm, so every action on the right lines up. -->
+        <Style x:Key="SettingsCard" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="4" />
+        </Style>
+        <Style x:Key="SettingsRow" TargetType="Grid">
+            <Setter Property="MinHeight" Value="64" />
+            <Setter Property="Padding" Value="16,12" />
+            <Setter Property="ColumnSpacing" Value="24" />
+        </Style>
+        <Style x:Key="SettingsDivider" TargetType="Border">
+            <Setter Property="Height" Value="1" />
+            <Setter Property="Background" Value="{ThemeResource DividerStrokeColorDefaultBrush}" />
+            <Setter Property="Margin" Value="16,0" />
         </Style>
     </Page.Resources>
 
     <ScrollViewer>
-        <StackPanel Margin="32,24,32,32" Spacing="20" MaxWidth="720" HorizontalAlignment="Left">
-
-            <TextBlock Text="Settings" Style="{ThemeResource TitleTextBlockStyle}" />
+        <StackPanel Margin="32,24,32,40" MaxWidth="1000" HorizontalAlignment="Stretch">
+            <TextBlock Text="Settings" Style="{ThemeResource TitleTextBlockStyle}" Margin="0,0,0,16" />
 
             <InfoBar
                 x:Name="NoticeBar"
@@ -27,420 +39,907 @@
                 Margin="0,0,0,4" />
 
             <!-- Playback -->
-            <StackPanel Spacing="8">
-                <TextBlock Text="Playback" Style="{ThemeResource SubtitleTextBlockStyle}" />
-                <Border CornerRadius="12" Background="#0FFFFFFF" Padding="16,14">
-                    <StackPanel>
-                        <Grid Style="{StaticResource SettingRow}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="Autoplay" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-                                <TextBlock
-                                    Text="When the queue ends, keep going with songs like the last one."
-                                    Style="{ThemeResource CaptionTextBlockStyle}"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    TextWrapping="Wrap" />
-                            </StackPanel>
-                            <ToggleSwitch
-                                x:Name="AutoplaySwitch"
-                                Grid.Column="1"
+            <TextBlock Text="Playback" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,4,0,8" />
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel>
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Autoplay" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="When the queue ends, keep going with songs like the last one."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            x:Name="AutoplaySwitch"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            OffContent=" "
+                            OnContent=" "
+                            AutomationProperties.Name="Autoplay"
+                            Toggled="OnAutoplayToggled" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Normalize volume" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Play loud masters at a similar level to everything else."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            x:Name="NormalizeSwitch"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            OffContent=" "
+                            OnContent=" "
+                            AutomationProperties.Name="Normalize volume"
+                            Toggled="OnNormalizeToggled" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Skip buttons" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Back and ahead buttons beside previous and next, in the player bar and Now Playing."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            x:Name="SkipButtonsSwitch"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            OffContent=" "
+                            OnContent=" "
+                            AutomationProperties.Name="Skip buttons"
+                            Toggled="OnSkipButtonsToggled" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Skip by" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="How far the skip buttons and Ctrl+Alt+Left or Right jump."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ComboBox
+                            x:Name="SkipBox"
+                            Grid.Column="1"
+                            MinWidth="140"
+                            VerticalAlignment="Center"
+                            AutomationProperties.Name="Skip by"
+                            SelectionChanged="OnSkipChanged" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Close to the tray" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Closing the window keeps Koda in the notification area, still playing."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            x:Name="CloseToTraySwitch"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            OffContent=" "
+                            OnContent=" "
+                            AutomationProperties.Name="Close to the tray"
+                            Toggled="OnCloseToTrayToggled" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Crossfade -->
+            <TextBlock Text="Crossfade" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel>
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Crossfade songs" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="The end of one song overlaps the start of the next, repeat one included. A skip fades the song out quickly instead of cutting it off."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            x:Name="CrossfadeSwitch"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            OffContent=" "
+                            OnContent=" "
+                            AutomationProperties.Name="Crossfade songs"
+                            Toggled="OnCrossfadeToggled" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Overlap" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="How long the two songs play together. Short songs keep most of themselves unfaded."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel
+                            Grid.Column="1"
+                            Orientation="Horizontal"
+                            Spacing="4"
+                            VerticalAlignment="Center">
+                            <Slider
+                                x:Name="CrossfadeSlider"
+                                Width="190"
+                                Minimum="1"
+                                Maximum="12"
+                                StepFrequency="1"
+                                SnapsTo="StepValues"
+                                AutomationProperties.Name="Crossfade overlap in seconds"
+                                ValueChanged="OnCrossfadeLengthChanged" />
+                            <TextBlock
+                                x:Name="CrossfadeValue"
+                                Width="44"
+                                TextAlignment="Right"
                                 VerticalAlignment="Center"
-                                OffContent=" "
-                                OnContent=" "
-                                Toggled="OnAutoplayToggled" />
-                        </Grid>
-                        <Grid Style="{StaticResource SettingRow}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="Skip buttons" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-                                <TextBlock
-                                    Text="Back and ahead buttons beside previous and next, in the player bar and Now Playing."
-                                    Style="{ThemeResource CaptionTextBlockStyle}"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    TextWrapping="Wrap" />
-                            </StackPanel>
-                            <ToggleSwitch
-                                x:Name="SkipButtonsSwitch"
-                                Grid.Column="1"
-                                VerticalAlignment="Center"
-                                OffContent=" "
-                                OnContent=" "
-                                AutomationProperties.Name="Skip buttons"
-                                Toggled="OnSkipButtonsToggled" />
-                        </Grid>
-                        <Grid Style="{StaticResource SettingRow}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="Skip by" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-                                <TextBlock
-                                    Text="How far the skip buttons and Ctrl+Alt+Left or Right jump."
-                                    Style="{ThemeResource CaptionTextBlockStyle}"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    TextWrapping="Wrap" />
-                            </StackPanel>
-                            <ComboBox
-                                x:Name="SkipBox"
-                                Grid.Column="1"
-                                MinWidth="120"
-                                VerticalAlignment="Center"
-                                AutomationProperties.Name="Skip by"
-                                SelectionChanged="OnSkipChanged" />
-                        </Grid>
-                        <Grid Style="{StaticResource SettingRow}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="Close to the tray" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-                                <TextBlock
-                                    Text="Closing the window keeps Koda in the notification area, still playing."
-                                    Style="{ThemeResource CaptionTextBlockStyle}"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    TextWrapping="Wrap" />
-                            </StackPanel>
-                            <ToggleSwitch
-                                x:Name="CloseToTraySwitch"
-                                Grid.Column="1"
-                                VerticalAlignment="Center"
-                                OffContent=" "
-                                OnContent=" "
-                                Toggled="OnCloseToTrayToggled" />
-                        </Grid>
-                    </StackPanel>
-                </Border>
-            </StackPanel>
+                                Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
 
             <!-- Windows -->
-            <StackPanel Spacing="8">
-                <TextBlock Text="Windows" Style="{ThemeResource SubtitleTextBlockStyle}" />
-                <Border CornerRadius="12" Background="#0FFFFFFF" Padding="16,14">
-                    <StackPanel>
-                        <Grid Style="{StaticResource SettingRow}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="Open at login" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-                                <TextBlock
-                                    Text="Start Koda when you sign in to Windows."
-                                    Style="{ThemeResource CaptionTextBlockStyle}"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    TextWrapping="Wrap" />
-                            </StackPanel>
-                            <ToggleSwitch
-                                x:Name="OpenAtLoginSwitch"
-                                Grid.Column="1"
+            <TextBlock Text="Windows" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel>
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Open at login" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Start Koda when you sign in to Windows."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            x:Name="OpenAtLoginSwitch"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            OffContent=" "
+                            OnContent=" "
+                            AutomationProperties.Name="Open at login"
+                            Toggled="OnOpenAtLoginToggled" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Audio output" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Play through the system default, or choose a headset or speakers."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <Button
+                            x:Name="OutputSettingsButton"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Content="Choose…"
+                            Click="OnChooseOutputClick" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Song notifications" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="A notification with the song, with Previous, Play and Next, while Koda is minimized or in the tray."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            x:Name="NotificationsSwitch"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            OffContent=" "
+                            OnContent=" "
+                            AutomationProperties.Name="Song notifications"
+                            Toggled="OnNotificationsToggled" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Energy Saver" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Windows turns the player's moving colours off while Energy Saver is on."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel
+                            Grid.Column="1"
+                            Orientation="Horizontal"
+                            Spacing="12"
+                            VerticalAlignment="Center">
+                            <TextBlock
+                                x:Name="EnergySaverText"
                                 VerticalAlignment="Center"
-                                OffContent=" "
-                                OnContent=" "
-                                AutomationProperties.Name="Open at login"
-                                Toggled="OnOpenAtLoginToggled" />
-                        </Grid>
-                        <Grid Style="{StaticResource SettingRow}" Margin="0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="Audio output" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-                                <TextBlock
-                                    Text="Play through the system default, or choose a headset or speakers."
-                                    Style="{ThemeResource CaptionTextBlockStyle}"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    TextWrapping="Wrap" />
-                            </StackPanel>
-                            <Button
-                                x:Name="OutputSettingsButton"
-                                Grid.Column="1"
-                                VerticalAlignment="Center"
-                                Content="Choose…"
-                                Click="OnChooseOutputClick" />
-                        </Grid>
-                    </StackPanel>
-                </Border>
-            </StackPanel>
+                                Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <Button Content="Windows settings" Click="OnEnergySaverSettingsClick" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
 
-            <!-- Sources -->
-            <StackPanel Spacing="8">
-                <TextBlock Text="Sources" Style="{ThemeResource SubtitleTextBlockStyle}" />
-                <Border CornerRadius="12" Background="#0FFFFFFF" Padding="16,14">
-                    <StackPanel>
-                        <TextBlock
-                            Text="The services the lyrics are asked for, best first. The last one cannot be turned off: the lyrics need somewhere to come from."
-                            Style="{ThemeResource CaptionTextBlockStyle}"
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            TextWrapping="Wrap"
-                            Margin="0,0,0,12" />
-                        <Grid Style="{StaticResource SettingRow}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="YouLyPlus" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-                                <TextBlock
-                                    Text="Word-by-word, with duets and backing vocals."
-                                    Style="{ThemeResource CaptionTextBlockStyle}"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    TextWrapping="Wrap" />
-                            </StackPanel>
-                            <ToggleSwitch
-                                x:Name="YouLyPlusSwitch"
-                                Grid.Column="1"
+            <!-- Lyrics -->
+            <TextBlock Text="Lyrics" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel>
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Text size" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="The size of the sung lines; backing vocals follow at 70%."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel
+                            Grid.Column="1"
+                            Orientation="Horizontal"
+                            Spacing="4"
+                            VerticalAlignment="Center">
+                            <Slider
+                                x:Name="LyricsSizeSlider"
+                                Width="190"
+                                Minimum="14"
+                                Maximum="32"
+                                StepFrequency="1"
+                                AutomationProperties.Name="Lyrics text size"
+                                ValueChanged="OnLyricsSizeChanged" />
+                            <TextBlock
+                                x:Name="LyricsSizeValue"
+                                Width="44"
+                                TextAlignment="Right"
                                 VerticalAlignment="Center"
-                                OffContent=" "
-                                OnContent=" "
-                                Toggled="OnSourceToggled" />
-                        </Grid>
-                        <Grid Style="{StaticResource SettingRow}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="BetterLyrics" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-                                <TextBlock
-                                    Text="Word-by-word, from several catalogues."
-                                    Style="{ThemeResource CaptionTextBlockStyle}"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    TextWrapping="Wrap" />
-                            </StackPanel>
-                            <ToggleSwitch
-                                x:Name="BetterLyricsSwitch"
-                                Grid.Column="1"
-                                VerticalAlignment="Center"
-                                OffContent=" "
-                                OnContent=" "
-                                Toggled="OnSourceToggled" />
-                        </Grid>
-                        <Grid Style="{StaticResource SettingRow}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="LRCLIB" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-                                <TextBlock
-                                    Text="Line-by-line and plain lyrics, community-made."
-                                    Style="{ThemeResource CaptionTextBlockStyle}"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    TextWrapping="Wrap" />
-                            </StackPanel>
-                            <ToggleSwitch
-                                x:Name="LrclibSwitch"
-                                Grid.Column="1"
-                                VerticalAlignment="Center"
-                                OffContent=" "
-                                OnContent=" "
-                                Toggled="OnSourceToggled" />
-                        </Grid>
-                    </StackPanel>
-                </Border>
-            </StackPanel>
+                                Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                        </StackPanel>
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Word motion" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Each word lifts as it's sung, and long notes swell."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            x:Name="WordMotionSwitch"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            OffContent=" "
+                            OnContent=" "
+                            AutomationProperties.Name="Word motion"
+                            Toggled="OnWordMotionToggled" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Backing vocals" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Shown smaller, under their line."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            x:Name="BackingVocalsSwitch"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            OffContent=" "
+                            OnContent=" "
+                            AutomationProperties.Name="Backing vocals"
+                            Toggled="OnBackingVocalsToggled" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Duet sides" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="The second singer's lines sit on the right."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            x:Name="DuetSidesSwitch"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            OffContent=" "
+                            OnContent=" "
+                            AutomationProperties.Name="Duet sides"
+                            Toggled="OnDuetSidesToggled" />
+                    </Grid>
+                </StackPanel>
+            </Border>
 
-            <!-- Display -->
-            <StackPanel Spacing="8">
-                <TextBlock Text="Display" Style="{ThemeResource SubtitleTextBlockStyle}" />
-                <Border CornerRadius="12" Background="#0FFFFFFF" Padding="16,14">
-                    <StackPanel>
-                        <ComboBox x:Name="LyricsSizeBox" Header="Text size" SelectionChanged="OnLyricsSizeChanged" Margin="0,0,0,14" />
-                        <Grid Style="{StaticResource SettingRow}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="Word motion" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-                                <TextBlock
-                                    Text="Each word lifts as it's sung, and long notes swell."
-                                    Style="{ThemeResource CaptionTextBlockStyle}"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    TextWrapping="Wrap" />
-                            </StackPanel>
-                            <ToggleSwitch
-                                x:Name="WordMotionSwitch"
-                                Grid.Column="1"
-                                VerticalAlignment="Center"
-                                OffContent=" "
-                                OnContent=" "
-                                Toggled="OnWordMotionToggled" />
-                        </Grid>
-                        <Grid Style="{StaticResource SettingRow}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="Backing vocals" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-                                <TextBlock
-                                    Text="Shown smaller, under their line."
-                                    Style="{ThemeResource CaptionTextBlockStyle}"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    TextWrapping="Wrap" />
-                            </StackPanel>
-                            <ToggleSwitch
-                                x:Name="BackingVocalsSwitch"
-                                Grid.Column="1"
-                                VerticalAlignment="Center"
-                                OffContent=" "
-                                OnContent=" "
-                                Toggled="OnBackingVocalsToggled" />
-                        </Grid>
-                        <Grid Style="{StaticResource SettingRow}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="Duet sides" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-                                <TextBlock
-                                    Text="The second singer's lines sit on the right."
-                                    Style="{ThemeResource CaptionTextBlockStyle}"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    TextWrapping="Wrap" />
-                            </StackPanel>
-                            <ToggleSwitch
-                                x:Name="DuetSidesSwitch"
-                                Grid.Column="1"
-                                VerticalAlignment="Center"
-                                OffContent=" "
-                                OnContent=" "
-                                Toggled="OnDuetSidesToggled" />
-                        </Grid>
-                        <Grid Style="{StaticResource SettingRow}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="Moving player colours" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-                                <TextBlock
-                                    Text="The cover's colours drift behind Now Playing; off, they hold still."
-                                    Style="{ThemeResource CaptionTextBlockStyle}"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    TextWrapping="Wrap" />
-                            </StackPanel>
-                            <ToggleSwitch
-                                x:Name="AnimatedBackgroundSwitch"
-                                Grid.Column="1"
-                                VerticalAlignment="Center"
-                                OffContent=" "
-                                OnContent=" "
-                                Toggled="OnAnimatedBackgroundToggled" />
-                        </Grid>
-                        <ComboBox x:Name="ThemeBox" Header="Appearance" SelectionChanged="OnThemeChanged" Margin="0,6,0,14" />
-                        <Button Content="Look up the lyrics again" Click="OnRelookLyricsClick" HorizontalAlignment="Left" Margin="0,0,0,6" />
-                        <TextBlock
-                            Text="Forgets the lyrics found this session, so the next song asks the services again."
-                            Style="{ThemeResource CaptionTextBlockStyle}"
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
-            </StackPanel>
+            <!-- Lyrics sources -->
+            <TextBlock Text="Lyrics sources" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel>
+                    <TextBlock
+                        Text="The services the lyrics are asked for, best first. The last one cannot be turned off: the lyrics need somewhere to come from."
+                        Style="{ThemeResource CaptionTextBlockStyle}"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        TextWrapping="Wrap"
+                        Margin="16,14,16,2" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="YouLyPlus" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Word-by-word, with duets and backing vocals."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            x:Name="YouLyPlusSwitch"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            OffContent=" "
+                            OnContent=" "
+                            AutomationProperties.Name="YouLyPlus"
+                            Toggled="OnSourceToggled" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="BetterLyrics" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Word-by-word, from several catalogues."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            x:Name="BetterLyricsSwitch"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            OffContent=" "
+                            OnContent=" "
+                            AutomationProperties.Name="BetterLyrics"
+                            Toggled="OnSourceToggled" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="LRCLIB" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Line-by-line and plain lyrics, community-made."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            x:Name="LrclibSwitch"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            OffContent=" "
+                            OnContent=" "
+                            AutomationProperties.Name="LRCLIB"
+                            Toggled="OnSourceToggled" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Look them up again" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Forgets the lyrics found this session, so the next song asks the services again."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <Button Grid.Column="1" VerticalAlignment="Center" Content="Look up" Click="OnRelookLyricsClick" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Appearance -->
+            <TextBlock Text="Appearance" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel>
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Theme" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Follow Windows, or keep Koda light or dark."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ComboBox
+                            x:Name="ThemeBox"
+                            Grid.Column="1"
+                            MinWidth="140"
+                            VerticalAlignment="Center"
+                            AutomationProperties.Name="Theme"
+                            SelectionChanged="OnThemeChanged" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Moving player colours" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="The cover's colours drift behind Now Playing; off, they hold still."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            x:Name="AnimatedBackgroundSwitch"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            OffContent=" "
+                            OnContent=" "
+                            AutomationProperties.Name="Moving player colours"
+                            Toggled="OnAnimatedBackgroundToggled" />
+                    </Grid>
+                </StackPanel>
+            </Border>
 
             <!-- Privacy -->
-            <StackPanel Spacing="8">
-                <TextBlock Text="Privacy" Style="{ThemeResource SubtitleTextBlockStyle}" />
-                <Border CornerRadius="12" Background="#0FFFFFFF" Padding="16,14">
-                    <StackPanel>
-                        <Grid Style="{StaticResource SettingRow}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="Save listening history" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-                                <TextBlock
-                                    Text="Off, nothing played is added to history, Quick picks or stats."
-                                    Style="{ThemeResource CaptionTextBlockStyle}"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    TextWrapping="Wrap" />
-                            </StackPanel>
-                            <ToggleSwitch
-                                x:Name="KeepHistorySwitch"
-                                Grid.Column="1"
-                                VerticalAlignment="Center"
-                                OffContent=" "
-                                OnContent=" "
-                                Toggled="OnKeepHistoryToggled" />
-                        </Grid>
-                        <Grid Style="{StaticResource SettingRow}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="Save search history" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-                                <TextBlock
-                                    Text="Off, what is searched for is not remembered."
-                                    Style="{ThemeResource CaptionTextBlockStyle}"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    TextWrapping="Wrap" />
-                            </StackPanel>
-                            <ToggleSwitch
-                                x:Name="KeepSearchHistorySwitch"
-                                Grid.Column="1"
-                                VerticalAlignment="Center"
-                                OffContent=" "
-                                OnContent=" "
-                                Toggled="OnKeepSearchHistoryToggled" />
-                        </Grid>
-                        <Button Content="Clear the listening history" Click="OnClearHistoryClick" HorizontalAlignment="Left" Margin="0,0,0,6" />
-                        <Button Content="Clear the search history" Click="OnClearSearchesClick" HorizontalAlignment="Left" Margin="0,0,0,6" />
-                        <Button Content="Clear the listening stats" Click="OnClearStatsClick" HorizontalAlignment="Left" Margin="0,0,0,6" />
+            <TextBlock Text="Privacy" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel>
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Save listening history" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Off, nothing played is added to history, Quick picks or stats."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            x:Name="KeepHistorySwitch"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            OffContent=" "
+                            OnContent=" "
+                            AutomationProperties.Name="Save listening history"
+                            Toggled="OnKeepHistoryToggled" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Save search history" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Off, what is searched for is not remembered."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            x:Name="KeepSearchHistorySwitch"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            OffContent=" "
+                            OnContent=" "
+                            AutomationProperties.Name="Save search history"
+                            Toggled="OnKeepSearchHistoryToggled" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Listening history" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Every song played, with the day it was played."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <Button Grid.Column="1" VerticalAlignment="Center" Content="Clear" Click="OnClearHistoryClick" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Search history" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="The words you searched for."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <Button Grid.Column="1" VerticalAlignment="Center" Content="Clear" Click="OnClearSearchesClick" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Listening stats" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Plays, minutes, and the artists and songs you play most."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <Button Grid.Column="1" VerticalAlignment="Center" Content="Clear" Click="OnClearStatsClick" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Suggest less -->
+            <TextBlock Text="Suggest less" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel>
+                    <TextBlock
+                        x:Name="SuggestLessNote"
+                        Style="{ThemeResource CaptionTextBlockStyle}"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        TextWrapping="Wrap"
+                        Margin="16,14,16,14" />
+                    <StackPanel x:Name="SuggestLessList" />
+                </StackPanel>
+            </Border>
+
+            <!-- Last.fm -->
+            <TextBlock Text="Last.fm" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <Border Style="{StaticResource SettingsCard}">
+                <Grid Style="{StaticResource SettingsRow}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center" Spacing="2">
+                        <TextBlock x:Name="LastFmTitle" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                        <TextBlock
+                            Text="Keep a record of what you play on your Last.fm profile. Your account and history live on Last.fm."
+                            Style="{ThemeResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            TextWrapping="Wrap" />
                     </StackPanel>
-                </Border>
-            </StackPanel>
+                    <Button x:Name="LastFmButton" Grid.Column="1" VerticalAlignment="Center" Click="OnLastFmClick" />
+                </Grid>
+            </Border>
+
+            <!-- Discord -->
+            <TextBlock Text="Discord" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <Border Style="{StaticResource SettingsCard}">
+                <Grid Style="{StaticResource SettingsRow}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center" Spacing="2">
+                        <TextBlock Text="Show what you're playing" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                        <TextBlock
+                            x:Name="DiscordText"
+                            Style="{ThemeResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                    <ToggleSwitch
+                        x:Name="DiscordSwitch"
+                        Grid.Column="1"
+                        VerticalAlignment="Center"
+                        OffContent=" "
+                        OnContent=" "
+                        AutomationProperties.Name="Show what you're playing on Discord"
+                        Toggled="OnDiscordToggled" />
+                </Grid>
+            </Border>
+
+            <!-- Downloads -->
+            <TextBlock Text="Downloads" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <Border Style="{StaticResource SettingsCard}">
+                <Grid Style="{StaticResource SettingsRow}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center" Spacing="2">
+                        <TextBlock Text="Downloaded songs" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                        <TextBlock
+                            x:Name="DownloadsText"
+                            Style="{ThemeResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Button Content="Show" Click="OnShowDownloadsClick" />
+                        <Button x:Name="RemoveDownloadsButton" Content="Remove all…" Click="OnRemoveDownloadsClick" />
+                    </StackPanel>
+                </Grid>
+            </Border>
 
             <!-- Listening cache -->
-            <StackPanel Spacing="8">
-                <TextBlock Text="Listening cache" Style="{ThemeResource SubtitleTextBlockStyle}" />
-                <Border CornerRadius="12" Background="#0FFFFFFF" Padding="16,14">
-                    <StackPanel>
-                        <ComboBox x:Name="CacheLimitBox" Header="Keep songs you play" SelectionChanged="OnCacheLimitChanged" Margin="0,0,0,10" />
-                        <TextBlock
-                            x:Name="CacheSizeText"
-                            Style="{ThemeResource CaptionTextBlockStyle}"
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            TextWrapping="Wrap"
-                            Margin="0,0,0,10" />
-                        <Button Content="Clear the listening cache" Click="OnClearCacheClick" HorizontalAlignment="Left" Margin="0,0,0,6" />
-                    </StackPanel>
-                </Border>
-            </StackPanel>
+            <TextBlock Text="Listening cache" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel>
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Keep songs you play" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="The listening cache's ceiling; downloads don't count."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ComboBox
+                            x:Name="CacheLimitBox"
+                            Grid.Column="1"
+                            MinWidth="140"
+                            VerticalAlignment="Center"
+                            AutomationProperties.Name="Keep songs you play"
+                            SelectionChanged="OnCacheLimitChanged" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Kept on disk" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                x:Name="CacheSizeText"
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <Button Grid.Column="1" VerticalAlignment="Center" Content="Clear" Click="OnClearCacheClick" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Backup -->
+            <TextBlock Text="Backup" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel>
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Export library" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Likes, playlists, saved albums, history, stats and lyrics offsets, as one file."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <Button Grid.Column="1" VerticalAlignment="Center" Content="Export…" Click="OnExportLibraryClick" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Restore library" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Replace what is here with a Koda library backup. The file is checked before anything changes."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <Button Grid.Column="1" VerticalAlignment="Center" Content="Restore…" Click="OnRestoreLibraryClick" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Import from Koda for Android" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                x:Name="AndroidImportText"
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <Button Grid.Column="1" VerticalAlignment="Center" Content="Import…" Click="OnAndroidImportClick" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Data folder" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Where Koda keeps its library, settings, lyrics and listening cache."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <Button Grid.Column="1" VerticalAlignment="Center" Content="Open" Click="OnOpenDataFolderClick" />
+                    </Grid>
+                </StackPanel>
+            </Border>
 
             <!-- About -->
-            <StackPanel Spacing="8">
-                <TextBlock Text="About" Style="{ThemeResource SubtitleTextBlockStyle}" />
-                <Border CornerRadius="12" Background="#0FFFFFFF" Padding="16,14">
-                    <StackPanel Spacing="8">
-                        <TextBlock x:Name="VersionText" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+            <TextBlock Text="About" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel>
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Koda" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="A music player for Windows, powered by YouTube Music."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
                         <TextBlock
-                            Text="A music player for Windows, powered by YouTube Music."
+                            x:Name="VersionText"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
                             Style="{ThemeResource CaptionTextBlockStyle}"
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            TextWrapping="Wrap" />
-                        <HyperlinkButton x:Name="RepositoryLink" Content="github.com/Ivorisnoob/Koda-Windows" Padding="0" Click="OnRepositoryClick" />
-                        <TextBlock
-                            Text="GPL-3.0, like the rest of the family. Not affiliated with Google or YouTube."
-                            Style="{ThemeResource CaptionTextBlockStyle}"
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
-            </StackPanel>
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Source code" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="github.com/Ivorisnoob/Koda-Windows"
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <HyperlinkButton
+                            x:Name="RepositoryLink"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Content="Open"
+                            Click="OnRepositoryClick" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="License" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="GPL-3.0, like the rest of the family. Not affiliated with Google or YouTube."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
         </StackPanel>
     </ScrollViewer>
 </Page>

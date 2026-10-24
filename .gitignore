@@ -26,6 +26,7 @@ scripts/check-c-clean.ps1
 docs/
 *.md
 !README.md
+!CHANGELOG.md
 
 # WiX Toolset extension folder (build tooling state, not source)
 .wix/

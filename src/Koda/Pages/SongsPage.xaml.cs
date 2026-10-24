@@ -25,13 +25,15 @@ public sealed partial class SongsPage : Page
     public SongsPage()
     {
         InitializeComponent();
-        SongMenu.Attach(Songs, () => _songs, ExtraActions);
+        SongMenu.Attach(Songs, () => _songs);
         App.Library.Changed += OnLibraryChanged;
         App.AudioStore.Changed += OnLibraryChanged;
+        App.Downloads.Changed += OnDownloadsChanged;
         Unloaded += (_, _) =>
         {
             App.Library.Changed -= OnLibraryChanged;
             App.AudioStore.Changed -= OnLibraryChanged;
+            App.Downloads.Changed -= OnDownloadsChanged;
         };
     }
 
@@ -74,22 +76,61 @@ public sealed partial class SongsPage : Page
 
     private void OnLibraryChanged() => DispatcherQueue.TryEnqueue(Render);
 
+    /// <summary>A download moved on. Progress only rewrites the line under the title; the list is
+    /// built again only when its songs changed, so it does not flicker while songs come in.</summary>
+    private void OnDownloadsChanged() => DispatcherQueue.TryEnqueue(() =>
+    {
+        if (_source != "downloads")
+        {
+            return;
+        }
+
+        if (!App.Downloads.Songs.Select(s => s.Id).SequenceEqual(_songs.Select(s => s.Id)))
+        {
+            Render();
+            return;
+        }
+
+        HeroDetail.Text = DownloadsDetail();
+    });
+
+    /// <summary>The count and time, the space taken, and how many are still on their way.</summary>
+    private string DownloadsDetail()
+    {
+        if (_songs.Length == 0)
+        {
+            return "";
+        }
+
+        var coming = _songs.Count(s => App.Downloads.StateOf(s).Phase
+            is Koda.Core.Storage.Downloads.Phase.Waiting or Koda.Core.Storage.Downloads.Phase.Downloading);
+        var parts = new List<string> { Format.SongList(_songs), Format.Bytes(App.Downloads.Bytes) };
+        if (coming > 0)
+        {
+            parts.Add(coming == 1 ? "1 downloading" : $"{coming} downloading");
+        }
+
+        return string.Join(" · ", parts);
+    }
+
     private void Render()
     {
         _songs = _source switch
         {
             "recent" => App.Library.Recent,
-            "downloads" => App.AudioStore.Downloads.Select(e => e.Song).OfType<Song>().ToArray(),
+            "downloads" => App.Downloads.Songs,
             "offline" => App.AudioStore.CompleteSongs,
             _ => SortedLiked(),
         };
 
         Songs.ItemsSource = _songs;
-        HeroDetail.Text = _songs.Length == 0 ? "" : Format.SongList(_songs);
+        HeroDetail.Text = _source == "downloads" ? DownloadsDetail() : _songs.Length == 0 ? "" : Format.SongList(_songs);
 
         var any = _songs.Length > 0;
         PlayButton.Visibility = ShuffleButton.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
-        ClearButton.Visibility = any && _source == "recent" ? Visibility.Visible : Visibility.Collapsed;
+        ClearButton.Visibility = any && _source is "recent" or "downloads" ? Visibility.Visible : Visibility.Collapsed;
+        ClearLabel.Text = _source == "downloads" ? "Remove all" : "Clear";
+        ToolTipService.SetToolTip(ClearButton, _source == "downloads" ? "Remove every download" : "Clear your listening history");
 
         var sortable = _source == "liked" && _songs.Length > 1;
         SortButton.Visibility = sortable ? Visibility.Visible : Visibility.Collapsed;
@@ -127,7 +168,7 @@ public sealed partial class SongsPage : Page
         var (title, message, glyph) = _source switch
         {
             "recent" => ("Nothing played yet", "Songs you play appear here, newest first.", "\uE823"),
-            "downloads" => ("No downloads yet", "Songs you download stay on this PC, ready without a connection.", "\uE896"),
+            "downloads" => ("No downloads yet", "Right-click a song and choose Download, or use Download on an album or playlist. Downloads stay on this PC and play without a connection.", "\uE896"),
             "offline" => ("Nothing ready offline",
                 "Songs you download, and songs you play all the way through, are kept on this PC and play without a connection.", "\uE709"),
             _ => ("No liked songs yet", "Songs you like appear here. Right-click any song, or use the heart in the player bar.", "\uEB52"),
@@ -156,18 +197,6 @@ public sealed partial class SongsPage : Page
         _ => "Recent",
     };
 
-    private IEnumerable<MenuFlyoutItemBase> ExtraActions(Song song)
-    {
-        if (_source == "downloads")
-        {
-            yield return SongMenu.Item("Remove download", "\uE74D", () =>
-            {
-                App.AudioStore.RemoveDownloads([song.Id]);
-                App.Shell?.Note($"Removed “{song.Title}” from downloads.");
-            });
-        }
-    }
-
     private void OnSongClick(object sender, ItemClickEventArgs e)
     {
         if (e.ClickedItem is Song song)
@@ -188,6 +217,17 @@ public sealed partial class SongsPage : Page
 
     private async void OnClearClick(object sender, RoutedEventArgs e)
     {
+        if (_source == "downloads")
+        {
+            if (await Dialogs.ConfirmAsync("Remove all downloads?",
+                    "They'll play from YouTube again, which needs a connection.", "Remove All"))
+            {
+                App.Downloads.RemoveAll();
+            }
+
+            return;
+        }
+
         if (await Dialogs.ConfirmAsync("Clear your listening history?",
                 "Recently Played and Quick picks start over. Liked songs and stats stay.", "Clear History"))
         {

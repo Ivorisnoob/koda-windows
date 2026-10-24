@@ -97,6 +97,7 @@
                             SelectionMode="None"
                             IsItemClickEnabled="True"
                             ItemClick="OnPickClick"
+                            Loaded="OnPicksLoaded"
                             ScrollViewer.VerticalScrollMode="Disabled"
                             ScrollViewer.HorizontalScrollMode="Disabled"
                             ItemTemplate="{StaticResource SongRowTemplate}">

@@ -41,9 +41,9 @@ public sealed partial class MainWindow : Window
     private bool _scrubbing;
     private bool _suppressVolumePersistence;
     private string? _currentTag;
+    private string? _notifiedSongId;
     private string _playlistSignature = "";
     private bool _hasUpNext;
-    private Guid _upNextId;
     private readonly List<NavigationViewItem> _playlistItems = [];
     private DispatcherQueueTimer? _volumeSaveTimer;
     private DispatcherQueueTimer? _statusTimer;
@@ -93,7 +93,12 @@ public sealed partial class MainWindow : Window
             () => Playback.IsPlaying ? "Pause" : "Play",
             OnTrayCommand);
 
+        // The taskbar's Jump List: the transport without opening the window.
+        JumpList.Apply();
+
         var dispatch = DispatcherQueue.GetForCurrentThread();
+        // Energy Saver quietly stills the decorative motion; the pages that move follow it.
+        EnergySaver.Watch(dispatch);
         Playback.Connect(dispatch, _smtc);
         Playback.TrackChanged += OnTrackChanged;
         Playback.QueueChanged += OnQueueModesChanged;
@@ -105,8 +110,11 @@ public sealed partial class MainWindow : Window
         App.Library.Changed += () => dispatch.TryEnqueue(UpdateLike);
         App.Settings.Changed += _ => dispatch.TryEnqueue(ApplySkipSettings);
 
-        Scrubber.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnScrubberPressed), true);
-        Scrubber.AddHandler(UIElement.PointerCaptureLostEvent, new PointerEventHandler(OnScrubberReleased), true);
+        // A toast clicked while Koda was closed waited for the playback service and the
+        // bar's events; now its action can run against a working app.
+        Notifications.Attach(this);
+
+        Scrubbing.Attach(Scrubber, on => _scrubbing = on, Playback.SeekSeconds, () => Playback.CurrentSong is not null);
         Scrubber.ValueChanged += (_, _) =>
         {
             if (_scrubbing) ElapsedText.Text = FormatTime(Scrubber.Value);
@@ -306,6 +314,9 @@ public sealed partial class MainWindow : Window
             case "glance":
                 NavigateRoot(typeof(StatsPage), null, "stats");
                 break;
+            case "lastfm":
+                NavigateRoot(typeof(LastFmPage), null, tag);
+                break;
             case "up-next":
                 ShowQueue();
                 break;
@@ -400,6 +411,7 @@ public sealed partial class MainWindow : Window
         nameof(SearchPage) => "search",
         nameof(HistoryPage) => "history",
         nameof(StatsPage) => "stats",
+        nameof(LastFmPage) => "lastfm",
         nameof(SongsPage) => (parameter as string) switch
         {
             "recent" => "recent",
@@ -552,41 +564,34 @@ public sealed partial class MainWindow : Window
         GlanceListened.Text = $"{Format.Listening(App.Library.ListeningOn(DateTimeOffset.Now))} today";
         var streak = App.Library.Streak();
         GlanceStreak.Text = streak == 0 ? "Start a streak" : Format.StreakLine(streak);
+        var label = $"{GlanceListened.Text}, {GlanceStreak.Text}. Open Listening Stats";
+        ToolTipService.SetToolTip(GlanceItem, label);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(GlanceItem, label);
     }
 
+    /// <summary>The song after this one, as a row of the pane; invoked, it opens the queue.</summary>
     private void UpdateUpNext()
     {
         var next = Playback.Queue.Upcoming.FirstOrDefault();
         _hasUpNext = next is not null;
-        _upNextId = next?.Id ?? Guid.Empty;
         UpNextTitle.Text = next?.Song.Title ?? "";
-        UpNextArtist.Text = next?.Song.ArtistLine ?? "";
-        Art.SetSource(UpNextArt, next?.Song.Artwork);
+        UpNextArtist.Text = next is null || string.IsNullOrEmpty(next.Song.ArtistLine)
+            ? "Up next"
+            : $"Up next · {next.Song.ArtistLine}";
+        var label = next is null ? "Up next" : $"Up next: {next.Song}. Open the queue";
+        ToolTipService.SetToolTip(UpNextItem, label);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(UpNextItem, label);
         UpdatePaneChrome();
     }
 
-    private void UpdatePaneChrome()
-    {
-        var open = Nav.IsPaneOpen;
-        UpNextItem.Visibility = open && _hasUpNext ? Visibility.Visible : Visibility.Collapsed;
-        GlanceItem.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    private void OnShowQueueClick(object sender, RoutedEventArgs e) => ShowQueue();
+    private void UpdatePaneChrome() =>
+        UpNextItem.Visibility = _hasUpNext ? Visibility.Visible : Visibility.Collapsed;
 
     private void ShowQueue()
     {
         if (Playback.CurrentSong is not null && ContentFrame.Content is not NowPlayingPage)
         {
             ContentFrame.Navigate(typeof(NowPlayingPage), "queue", new Microsoft.UI.Xaml.Media.Animation.DrillInNavigationTransitionInfo());
-        }
-    }
-
-    private void OnUpNextClick(object sender, RoutedEventArgs e)
-    {
-        if (_upNextId != Guid.Empty)
-        {
-            _ = Playback.JumpAsync(_upNextId);
         }
     }
 
@@ -708,6 +713,18 @@ public sealed partial class MainWindow : Window
         TotalText.Text = Playback.DurationSeconds > 0 ? FormatTime(Playback.DurationSeconds) : "";
         OnQueueModesChanged();
         UpdateTaskbar();
+
+        // One toast per song, and only when the track really changed: TrackChanged also
+        // fires when the queue modes or the known duration change.
+        if (song is null)
+        {
+            _notifiedSongId = null;
+        }
+        else if (song.Id != _notifiedSongId)
+        {
+            _notifiedSongId = song.Id;
+            Notifications.SongChanged(song, Playback.IsPlaying);
+        }
     }
 
     private void OnQueueModesChanged()
@@ -835,28 +852,6 @@ public sealed partial class MainWindow : Window
         return hours > 0 ? $"{hours}:{minutes:D2}:{secs:D2}" : $"{minutes}:{secs:D2}";
     }
 
-    private void OnScrubberPressed(object sender, PointerRoutedEventArgs args)
-    {
-        if (Playback.CurrentSong is not null)
-        {
-            _scrubbing = true;
-        }
-    }
-
-    private void OnScrubberReleased(object sender, PointerRoutedEventArgs args)
-    {
-        if (!_scrubbing)
-        {
-            return;
-        }
-
-        _scrubbing = false;
-        if (Playback.CurrentSong is not null)
-        {
-            Playback.SeekSeconds(Scrubber.Value);
-        }
-    }
-
     private void OnPlayPauseClick(object sender, RoutedEventArgs e) => Playback.Toggle();
 
     private void OnMiniClick(object sender, RoutedEventArgs e) => ShowMiniPlayer();
@@ -925,6 +920,12 @@ public sealed partial class MainWindow : Window
         StatusRibbon.IsOpen = true;
         _statusTimer?.Stop();
         _statusTimer?.Start();
+
+        // A failure while the window is away deserves a toast; pacing notes do not.
+        if (tone == PlaybackService.StatusTone.Fault)
+        {
+            Notifications.Fault(message);
+        }
     }
 
     private void OnStatusClosed(InfoBar sender, object args) => _statusTimer?.Stop();
@@ -988,6 +989,12 @@ public sealed partial class MainWindow : Window
     /// second window so the library stays usable behind it; a second request focuses the
     /// same overlay instead of stacking another.
     /// </summary>
+    /// <summary>Whether the listener can see what is playing: the window is up and not minimized,
+    /// or the mini player is open. A song notification is for when they cannot.</summary>
+    public bool ShowsPlayback =>
+        _mini is not null ||
+        (AppWindow.IsVisible && (AppWindow.Presenter as OverlappedPresenter)?.State != OverlappedPresenterState.Minimized);
+
     public void ShowMiniPlayer()
     {
         if (Playback.CurrentSong is null)

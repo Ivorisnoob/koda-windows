@@ -34,6 +34,42 @@ public sealed record AndroidImportSummary(int LikedSongs = 0, int Plays = 0, int
 public sealed class LibraryBackupException() : Exception("This file isn't a Koda library backup.");
 
 /// <summary>
+/// What the listener asked Koda to suggest less: songs, and artists whose songs they don't
+/// want offered. Applies to what Koda suggests (Home, mixes, radio and autoplay), never to
+/// what the listener picks themselves. The Swift <c>NotInterested</c>, field for field.
+/// </summary>
+public sealed class NotInterested
+{
+    /// <summary>Newest first.</summary>
+    public List<Song> Songs { get; set; } = [];
+    public List<ArtistRef> Artists { get; set; } = [];
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsEmpty => Songs.Count == 0 && Artists.Count == 0;
+
+    public bool Hides(Song song)
+    {
+        if (Songs.Exists(s => s.Id == song.Id)) return true;
+        if (Artists.Count == 0) return false;
+        // Linked artists by channel id; a byline YouTube didn't link is matched on the whole line.
+        var credited = song.Artists.Length == 0 ? [new ArtistRef(null, song.ArtistLine)] : song.Artists;
+        return credited.Any(Hides);
+    }
+
+    public bool Hides(ArtistRef artist) => Artists.Exists(a => Same(a, artist));
+
+    /// <summary>The same artist: by channel id when both have one, otherwise by name.</summary>
+    public static bool Same(ArtistRef a, ArtistRef b)
+    {
+        if (a.Id is { } x && b.Id is { } y) return x == y;
+        return string.Compare(a.Name, b.Name, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.CompareOptions.IgnoreCase | System.Globalization.CompareOptions.IgnoreNonSpace) == 0;
+    }
+
+    public NotInterested Copy() => new() { Songs = [.. Songs], Artists = [.. Artists] };
+}
+
+/// <summary>
 /// What the listener keeps: songs they liked, albums, playlists
 /// and artists they saved, playlists they made, what they played and searched,
 /// and how long they listened. One JSON file, written after each change.
@@ -351,6 +387,40 @@ public sealed class Library
         return count;
     }
 
+    // MARK: Not interested
+
+    /// <summary>The songs and artists the listener asked Koda to suggest less, newest first.</summary>
+    public NotInterested NotInterested { get { lock (_lock) return _s.NotInterested.Copy(); } }
+
+    /// <summary>Whether a song is kept out of what Koda suggests: itself, or an artist on it.</summary>
+    public bool IsUnwanted(Song song) { lock (_lock) return _s.NotInterested.Hides(song); }
+
+    public bool IsUnwanted(ArtistRef artist) { lock (_lock) return _s.NotInterested.Hides(artist); }
+
+    /// <summary>Songs that may be offered: without the ones the listener asked not to hear.</summary>
+    public Song[] Offerable(IEnumerable<Song> songs)
+    {
+        lock (_lock)
+        {
+            var hidden = _s.NotInterested;
+            return hidden.IsEmpty ? [.. songs] : [.. songs.Where(s => !hidden.Hides(s))];
+        }
+    }
+
+    public void Hide(Song song) => Edit(s =>
+    {
+        if (!s.NotInterested.Songs.Exists(x => x.Id == song.Id)) s.NotInterested.Songs.Insert(0, song);
+    });
+
+    public void Hide(ArtistRef artist) => Edit(s =>
+    {
+        if (!s.NotInterested.Hides(artist)) s.NotInterested.Artists.Insert(0, artist);
+    });
+
+    public void Unhide(Song song) => Edit(s => s.NotInterested.Songs.RemoveAll(x => x.Id == song.Id));
+
+    public void Unhide(ArtistRef artist) => Edit(s => s.NotInterested.Artists.RemoveAll(x => NotInterested.Same(x, artist)));
+
     // MARK: Storage
 
     /// <summary>The file's shape, field for field the Swift Snapshot, so a backup reads on either platform.</summary>
@@ -369,6 +439,7 @@ public sealed class Library
         /// <summary>The newest play taken from a Koda for Android backup, so importing the same
         /// backup, or a later one that repeats its history, never counts a play twice.</summary>
         public DateTimeOffset? AndroidPlaysImportedThrough { get; set; }
+        public NotInterested NotInterested { get; set; } = new();
     }
 
     private sealed class Backup
@@ -495,6 +566,9 @@ public sealed class Library
         s.SongStats ??= [];
         s.DailyListening ??= [];
         s.LyricsOffsets ??= [];
+        s.NotInterested ??= new();
+        s.NotInterested.Songs ??= [];
+        s.NotInterested.Artists ??= [];
         return s;
     }
 
@@ -595,6 +669,7 @@ public sealed class Library
             s.DailyListening = restored.DailyListening;
             s.LyricsOffsets = restored.LyricsOffsets;
             s.AndroidPlaysImportedThrough = restored.AndroidPlaysImportedThrough;
+            s.NotInterested = restored.NotInterested;
         });
 
         // A version 1 backup has no dated history: the plays it knows of become one each,

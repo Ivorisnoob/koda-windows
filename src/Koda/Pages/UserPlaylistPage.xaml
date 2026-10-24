@@ -53,6 +53,7 @@
                                         <TextBlock Text="Shuffle" />
                                     </StackPanel>
                                 </Button>
+                                <controls:DownloadButton x:Name="DownloadButton" />
                                 <Button x:Name="MoreButton" Padding="10,7" ToolTipService.ToolTip="More" AutomationProperties.Name="More playlist actions">
                                     <FontIcon Glyph="&#xE712;" FontSize="14" />
                                 </Button>

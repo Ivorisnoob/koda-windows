@@ -43,6 +43,24 @@ internal static class AudioOutputs
         return found;
     }
 
+    /// <summary>Whether Windows has anywhere to play sound: a default output exists only while
+    /// some speakers, headphones or monitor are connected and enabled.</summary>
+    public static bool HasOutput
+    {
+        get
+        {
+            try
+            {
+                return !string.IsNullOrEmpty(MediaDevice.GetDefaultAudioRenderId(AudioDeviceRole.Default));
+            }
+            catch (Exception)
+            {
+                // Can't tell: let the player try, and its own failure say why.
+                return true;
+            }
+        }
+    }
+
     /// <summary>The friendly name of the current system default, for the menu.</summary>
     public static async Task<string?> DefaultNameAsync()
     {

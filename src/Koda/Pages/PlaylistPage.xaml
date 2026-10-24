@@ -46,6 +46,7 @@
                                         <TextBlock Text="Shuffle" />
                                     </StackPanel>
                                 </Button>
+                                <controls:DownloadButton x:Name="DownloadButton" />
                                 <Button x:Name="SaveButton" Click="OnSaveClick" Padding="10,7" ToolTipService.ToolTip="Save to Library">
                                     <FontIcon x:Name="SaveIcon" Glyph="&#xEB51;" FontSize="14" />
                                 </Button>

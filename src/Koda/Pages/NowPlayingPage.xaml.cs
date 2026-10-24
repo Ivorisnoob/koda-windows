@@ -73,13 +73,7 @@ public sealed partial class NowPlayingPage : Page
         };
         KeyboardAccelerators.Add(escape);
 
-        Scrubber.AddHandler(PointerPressedEvent, new PointerEventHandler((_, _) => _scrubbing = true), true);
-        Scrubber.AddHandler(PointerCaptureLostEvent, new PointerEventHandler((_, _) =>
-        {
-            if (!_scrubbing) return;
-            _scrubbing = false;
-            Playback.SeekSeconds(Scrubber.Value);
-        }), true);
+        Scrubbing.Attach(Scrubber, on => _scrubbing = on, Playback.SeekSeconds);
         Scrubber.ValueChanged += (_, _) =>
         {
             if (_scrubbing) UpdateTimes(Scrubber.Value);
@@ -96,6 +90,10 @@ public sealed partial class NowPlayingPage : Page
         // takes over from it when they scroll away.
         _lyrics = new LyricsPanel(LyricsScroll, LyricsLines, DispatcherQueue);
         _lyrics.Seek = seconds => Playback.SeekSeconds(seconds);
+        _lyrics.Share = (lines, index) =>
+        {
+            if (Playback.CurrentSong is { } song) _ = LyricsShare.ShowAsync(song, lines, index);
+        };
         // The panel asks the player where the song is, every frame: the app's own
         // tick only comes twice a second, and a word that fills in half-second steps
         // reads as a sequence of keyframes rather than a word being sung.
@@ -112,10 +110,13 @@ public sealed partial class NowPlayingPage : Page
         Playback.QueueChanged += OnQueueChanged;
         Playback.PlayStateChanged += OnPlayStateChanged;
         Playback.PositionTick += OnPositionTick;
+        Playback.SleepChanged += OnSleepChanged;
         App.Library.Changed += OnLibraryChanged;
         App.Settings.Changed += OnSettingsChanged;
+        EnergySaver.Changed += OnEnergySaverChanged;
         Volume.Value = App.Volume;
         ApplySkipSettings();
+        UpdateSleepPill();
         RenderTrack();
         RenderQueue();
         RenderPlayState();
@@ -134,8 +135,10 @@ public sealed partial class NowPlayingPage : Page
         Playback.QueueChanged -= OnQueueChanged;
         Playback.PlayStateChanged -= OnPlayStateChanged;
         Playback.PositionTick -= OnPositionTick;
+        Playback.SleepChanged -= OnSleepChanged;
         App.Library.Changed -= OnLibraryChanged;
         App.Settings.Changed -= OnSettingsChanged;
+        EnergySaver.Changed -= OnEnergySaverChanged;
         _lyrics?.Pause();
         Drift.Stop();
     }
@@ -145,6 +148,8 @@ public sealed partial class NowPlayingPage : Page
     private void OnPlayStateChanged() => DispatcherQueue.TryEnqueue(RenderPlayState);
     private void OnLibraryChanged() => DispatcherQueue.TryEnqueue(UpdateLike);
     private void OnSettingsChanged(Settings settings) => DispatcherQueue.TryEnqueue(ApplySkipSettings);
+    private void OnSleepChanged() => DispatcherQueue.TryEnqueue(UpdateSleepPill);
+    private void OnEnergySaverChanged() => DispatcherQueue.TryEnqueue(RenderPlayState);
 
     // MARK: the song
 
@@ -275,10 +280,11 @@ public sealed partial class NowPlayingPage : Page
 
         // The cover sits full size while sound plays, a little back while paused or loading.
         (playing && !loading ? CoverIn : CoverOut).Begin();
-        // The cover's colours drift behind the player, unless the listener turned that off
-        // or the system has animations turned off.
+        // The cover's colours drift behind the player, unless the listener turned that off,
+        // the system has animations turned off, or Windows Energy Saver is on.
         var animate = new Windows.UI.ViewManagement.UISettings().AnimationsEnabled &&
-            Koda.Core.Settings.Current.AnimatesPlayerBackground;
+            Koda.Core.Settings.Current.AnimatesPlayerBackground &&
+            !EnergySaver.IsOn;
         if (playing && animate) Drift.Begin();
         else Drift.Pause();
     }
@@ -486,8 +492,88 @@ public sealed partial class NowPlayingPage : Page
     {
         if (Playback.CurrentSong is { } song)
         {
-            SongMenu.Build(song, [.. Playback.Queue.Items.Select(i => i.Song)]).ShowAt(MoreButton);
+            var menu = SongMenu.Build(song, [.. Playback.Queue.Items.Select(i => i.Song)]);
+            menu.Items.Insert(0, BuildSleepMenu());
+            menu.Items.Insert(1, new MenuFlyoutSeparator());
+            menu.ShowAt(MoreButton);
         }
+    }
+
+    /// <summary>The top bar's pill opens the same timer choices, without going through More.</summary>
+    private void OnSleepPillClick(object sender, RoutedEventArgs e)
+    {
+        var menu = new MenuFlyout();
+        AddSleepItems(menu.Items);
+        menu.ShowAt(SleepPill);
+    }
+
+    private MenuFlyoutSubItem BuildSleepMenu()
+    {
+        var submenu = new MenuFlyoutSubItem
+        {
+            Text = "Sleep timer",
+            Icon = new FontIcon { Glyph = "\uE708" },
+        };
+        AddSleepItems(submenu.Items);
+        return submenu;
+    }
+
+    /// <summary>The presets, Off and End of song. A fresh menu is built each time, so the
+    /// check marks always say what is really set.</summary>
+    private void AddSleepItems(IList<MenuFlyoutItemBase> items)
+    {
+        var off = new ToggleMenuFlyoutItem
+        {
+            Text = "Off",
+            IsChecked = !Playback.IsSleepArmed,
+        };
+        off.Click += (_, _) => Playback.CancelSleep();
+        items.Add(off);
+        items.Add(new MenuFlyoutSeparator());
+
+        foreach (var minutes in PlaybackService.SleepPresets)
+        {
+            var item = new ToggleMenuFlyoutItem
+            {
+                Text = $"{minutes} minutes",
+                IsChecked = Playback.SleepMinutes == minutes,
+            };
+            var chosen = minutes;
+            item.Click += (_, _) => Playback.SleepIn(chosen);
+            items.Add(item);
+        }
+
+        items.Add(new MenuFlyoutSeparator());
+        var end = new ToggleMenuFlyoutItem
+        {
+            Text = "End of song",
+            IsChecked = Playback.SleepAtEnd,
+        };
+        end.Click += (_, _) =>
+        {
+            if (Playback.SleepAtEnd)
+            {
+                Playback.CancelSleep();
+            }
+            else
+            {
+                Playback.SleepAtEndOfSong();
+            }
+        };
+        items.Add(end);
+    }
+
+    /// <summary>The pill carries the countdown once a timer is set.</summary>
+    private void UpdateSleepPill()
+    {
+        var label = Playback.SleepLabel;
+        SleepPill.Visibility = label is null ? Visibility.Collapsed : Visibility.Visible;
+        if (label is not null)
+        {
+            SleepPillText.Text = label;
+        }
+
+        ToolTipService.SetToolTip(SleepPill, label is null ? "Sleep timer" : $"Sleep timer: {label}");
     }
 
     private void OnOutputClick(object sender, RoutedEventArgs e) => AudioOutputMenu.Show(OutputButton);

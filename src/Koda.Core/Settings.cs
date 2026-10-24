@@ -11,14 +11,6 @@ public enum Theme
     Dark,
 }
 
-/// <summary>How big the sung lyrics are. Backing vocals are drawn at 70% of it.</summary>
-public enum LyricsSize
-{
-    Small,
-    Standard,
-    Large,
-}
-
 /// <summary>How much of the songs kept from listening may take; downloads don't count.</summary>
 public enum CacheLimit : long
 {
@@ -67,7 +59,6 @@ public sealed class Settings
         Converters =
         {
             new JsonStringEnumConverter<Theme>(),
-            new JsonStringEnumConverter<LyricsSize>(),
             new JsonStringEnumConverter<CacheLimit>(),
             new JsonStringEnumConverter<LyricsSource>(),
             new JsonStringEnumConverter<LibrarySort>(),
@@ -99,8 +90,29 @@ public sealed class Settings
     /// <summary>Words rise as they start and held notes swell.</summary>
     public bool LyricsMotion { get; set; } = true;
 
-    /// <summary>How big the sung lyrics are.</summary>
-    public LyricsSize LyricsSize { get; set; } = LyricsSize.Standard;
+    /// <summary>The size of a sung line, in effective pixels; backing vocals follow at 70%.
+    /// Kept between 14 and 32, the slider's ends.</summary>
+    public double LyricsFontSize
+    {
+        get => _lyricsFontSize;
+        set => _lyricsFontSize = Math.Clamp(value, 14, 32);
+    }
+
+    private double _lyricsFontSize = 20;
+
+    /// <summary>The old three-step size, read once from an earlier settings file and never
+    /// written: Small and Large keep their place either side of the default.</summary>
+    [JsonPropertyName("lyricsSize")]
+    public string? LegacyLyricsSize
+    {
+        get => null;
+        set => _lyricsFontSize = value switch
+        {
+            "Small" => 16,
+            "Large" => 24,
+            _ => _lyricsFontSize,
+        };
+    }
 
     /// <summary>Backing vocals are shown smaller, under their line.</summary>
     public bool ShowsBackingVocals { get; set; } = true;
@@ -140,6 +152,29 @@ public sealed class Settings
 
     /// <summary>Koda's own volume, under the system's.</summary>
     public double Volume { get; set; } = 100;
+
+    /// <summary>Loud masters are brought down to YouTube's -14 LUFS target, so songs play at
+    /// a similar volume. Quiet ones are left alone rather than boosted.</summary>
+    public bool NormalizesVolume { get; set; } = true;
+
+    /// <summary>Songs overlap as one ends and the next begins, the old fading out as the new
+    /// fades in. Skips get a short fade too, so changing songs never cuts off mid-note.</summary>
+    public bool Crossfades { get; set; } = true;
+
+    /// <summary>How long songs overlap, in seconds; kept between 1 and 12, as on the Mac.</summary>
+    public double CrossfadeSeconds
+    {
+        get => _crossfadeSeconds;
+        set => _crossfadeSeconds = double.IsFinite(value) ? Math.Clamp(Math.Round(value), 1, 12) : 5;
+    }
+
+    private double _crossfadeSeconds = 5;
+
+    /// <summary>The playing song on the listener's Discord profile, through the Discord app on this PC.</summary>
+    public bool SharesOnDiscord { get; set; }
+
+    /// <summary>A notification with the song while Koda is in the background.</summary>
+    public bool ShowsSongNotifications { get; set; } = true;
 
     /// <summary>How saved albums, playlists and artists are ordered in the library.</summary>
     public LibrarySort LibrarySort { get; set; } = LibrarySort.Recent;
@@ -192,15 +227,6 @@ public sealed class Settings
             DisabledLyricsSources.Add(source);
         }
     }
-
-    /// <summary>The point size of a sung line; backing vocals are drawn at 70% of it.</summary>
-    [JsonIgnore]
-    public double LyricsFontSize => LyricsSize switch
-    {
-        LyricsSize.Small => 15,
-        LyricsSize.Large => 19,
-        _ => 17,
-    };
 
     /// <summary>Changes a setting and writes the file.</summary>
     public void Update(Action<Settings> change)

@@ -17,6 +17,11 @@ namespace Koda.Playback;
 /// Now Playing, tray, SMTC). One instance per process, on the UI thread. Ported from the
 /// KodaCore Player's queue behaviour: Autoplay carries on with the radio of the last song
 /// when the queue runs low; repeat and shuffle are the queue's; the queue survives a relaunch.
+///
+/// The next song is loaded ahead on the player's standby voice as the current one nears its
+/// end. With crossfade on it fades in over the end of the current song (repeat one included:
+/// the standby is the same song again, from its start); with crossfade off it starts the
+/// moment the current one ends, without the gap a fresh resolve would leave.
 /// </summary>
 public sealed class PlaybackService
 {
@@ -33,6 +38,10 @@ public sealed class PlaybackService
 
     private static string QueuePath => Path.Combine(App.DataDirectory, "queue.json");
 
+    /// <summary>How long the player may wait on the network, wanting to play, before the song is
+    /// reloaded where it was; half that for a song that never got going.</summary>
+    private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(15);
+
     private readonly Player _player = new();
     private PlayQueue _queue = new();
     private DispatcherQueue? _dispatch;
@@ -44,11 +53,26 @@ public sealed class PlaybackService
     private bool _resolving;
     private bool _wantsToPlay;
     private bool _failedOnce;
+    /// <summary>Seconds of sound since the last retry.</summary>
+    private double _heardSinceRetry;
     private bool _recovering;
     private bool _extending;
-    /// <summary>Bumped per track start, so a slow resolve for a song skipped past is dropped.</summary>
+    /// <summary>Bumped per play of a song (a repeat round included), so a slow resolve for a song
+    /// skipped past is dropped and each play is reported once.</summary>
     private int _generation;
+    /// <summary>Bumped per load ahead, so a slow resolve for a next song that changed is dropped.</summary>
+    private int _nextGeneration;
+    private int _reportedGeneration = -1;
     private double _resumeAt;
+    /// <summary>Since when the player has been waiting on the network while the listener wants sound.</summary>
+    private DateTimeOffset? _stalledSince;
+    private DispatcherQueueTimer? _sleepTimer;
+    private DateTimeOffset? _sleepAt;
+    private int? _sleepMinutes;
+    private bool _sleepAtEnd;
+
+    /// <summary>The sleep timer's presets, in minutes.</summary>
+    public static readonly int[] SleepPresets = [5, 10, 15, 30, 45, 60, 90];
 
     /// <summary>The current song changed (bar text, cover, like, Now Playing header).</summary>
     public event Action? TrackChanged;
@@ -65,6 +89,16 @@ public sealed class PlaybackService
     /// <summary>Non-blocking status line for the shell ribbon (never a dialog).</summary>
     public event Action<StatusTone, string>? StatusRaised;
 
+    /// <summary>The sleep timer was set, ticked, or cleared: the pill follows the countdown.</summary>
+    public event Action? SleepChanged;
+
+    /// <summary>A queue occurrence started making sound, once per play: a song repeated is a new
+    /// play. For Last.fm's "now playing" and its scrobble.</summary>
+    public event Action<QueueItem>? ItemStarted;
+
+    /// <summary>Seconds of the occurrence actually heard since the last call.</summary>
+    public event Action<QueueItem, double>? ItemHeard;
+
     public Song? CurrentSong => _queue.Current?.Song;
 
     public PlayQueue Queue => _queue;
@@ -73,7 +107,9 @@ public sealed class PlaybackService
     public bool IsPlaying => _wantsToPlay;
 
     /// <summary>Asked to play and no sound yet: resolving, opening or buffering.</summary>
-    public bool IsLoading => _wantsToPlay && (_resolving || _player.State is MediaPlayerState.Opening or MediaPlayerState.Buffering);
+    public bool IsLoading => _wantsToPlay && (_resolving ||
+        _player.State is MediaPlayerState.Opening or MediaPlayerState.Buffering ||
+        (_loaded && _player.State == MediaPlayerState.Closed));
 
     public bool IsMuted { get; private set; }
 
@@ -99,14 +135,15 @@ public sealed class PlaybackService
         _dispatch = dispatch;
         _smtc = smtc;
 
-        _player.Ended += () => dispatch.TryEnqueue(() => _ = OnEndedAsync());
-        _player.Failed += reason => dispatch.TryEnqueue(() => _ = RecoverAsync(reason));
-        _player.StateReached += state => dispatch.TryEnqueue(() =>
-        {
-            if (state == MediaPlayerState.Playing) _resolving = false;
-            PlayStateChanged?.Invoke();
-            _smtc?.UpdatePlaybackState(state == MediaPlayerState.Playing);
-        });
+        // The player raises everything on the UI thread already.
+        _player.Connect(dispatch);
+        _player.Ended += () => _ = OnEndedAsync();
+        _player.Failed += reason => _ = RecoverAsync(reason);
+        _player.StateReached += OnStateReached;
+        _player.NearEnd += () => _ = PrepareNextAsync();
+        _player.CrossfadeDue += OnCrossfadeDue;
+        ApplyAudioSettings(Koda.Core.Settings.Current);
+        Koda.Core.Settings.Current.Changed += settings => dispatch.TryEnqueue(() => ApplyAudioSettings(settings));
 
         // A 429 arms a hold on background fan-out only; the shell shows it as a ribbon.
         EngineHost.Music.Gate.Throttled += hold => dispatch.TryEnqueue(() => StatusRaised?.Invoke(
@@ -115,20 +152,79 @@ public sealed class PlaybackService
 
         _positionTimer = dispatch.CreateTimer();
         _positionTimer.Interval = TimeSpan.FromMilliseconds(500);
-        _positionTimer.Tick += (_, _) =>
-        {
-            PositionTick?.Invoke();
-            if (CurrentSong is { } listening && _player.State == MediaPlayerState.Playing)
-            {
-                App.Library.AddListening(0.5, listening);
-            }
-
-            _smtc?.SetTimeline(PositionSeconds, DurationSeconds);
-        };
+        _positionTimer.Tick += (_, _) => OnPositionTimer();
         _positionTimer.Start();
+
+        // The sleep timer counts wall-clock seconds, even while paused: it is the listener's
+        // "stop by then", not a count of played time.
+        _sleepTimer = dispatch.CreateTimer();
+        _sleepTimer.Interval = TimeSpan.FromSeconds(1);
+        _sleepTimer.Tick += (_, _) => TickSleep();
 
         RestoreQueue();
         _ = RestoreAudioDeviceAsync();
+    }
+
+    private void ApplyAudioSettings(Koda.Core.Settings settings)
+    {
+        _player.NormalizesVolume = settings.NormalizesVolume;
+        _player.Crossfades = settings.Crossfades;
+        _player.CrossfadeSeconds = settings.CrossfadeSeconds;
+        // A crossfade turned on near the end needs the next song loaded now, not next song.
+        _ = PrepareNextAsync();
+    }
+
+    private void OnStateReached(MediaPlayerState state)
+    {
+        if (state == MediaPlayerState.Playing)
+        {
+            _resolving = false;
+            ReportStart();
+        }
+
+        PlayStateChanged?.Invoke();
+        _smtc?.UpdatePlaybackState(state == MediaPlayerState.Playing);
+    }
+
+    private void OnPositionTimer()
+    {
+        PositionTick?.Invoke();
+        var sounding = _player.State == MediaPlayerState.Playing;
+        if (_queue.Current is { } item && sounding)
+        {
+            App.Library.AddListening(0.5, item.Song);
+            ItemHeard?.Invoke(item, 0.5);
+
+            // A retried song that has played well for a while has earned another retry: a
+            // stall much later in a long song is a new problem, not the same one again.
+            if (_failedOnce && (_heardSinceRetry += 0.5) >= 30)
+            {
+                _failedOnce = false;
+            }
+        }
+
+        _smtc?.SetTimeline(PositionSeconds, DurationSeconds);
+        WatchForStall(sounding);
+    }
+
+    /// <summary>The Mac's stall watchdog: waiting on the network too long while the listener wants
+    /// sound reloads the song where it was, rather than leaving it spinning for ever.</summary>
+    private void WatchForStall(bool sounding)
+    {
+        if (!_wantsToPlay || !_loaded || _recovering || sounding || CurrentSong is null)
+        {
+            _stalledSince = null;
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        _stalledSince ??= now;
+        var timeout = PositionSeconds > 0.5 ? StallTimeout : StallTimeout / 2;
+        if (now - _stalledSince.Value >= timeout)
+        {
+            _stalledSince = null;
+            _ = RecoverAsync("the stream stalled");
+        }
     }
 
     /// <summary>The output device the listener chose; null is the system default.</summary>
@@ -196,8 +292,8 @@ public sealed class PlaybackService
         try
         {
             var radio = await EngineHost.Music.RadioAsync(seed.Id);
-            var songs = radio.Songs.Length > 0 ? radio.Songs : [seed];
-            await PlayNowAsync(songs[0], songs);
+            var songs = radio.Songs.Where(s => s.Id == seed.Id || !App.Library.IsUnwanted(s)).ToArray();
+            await PlayNowAsync(songs.Length > 0 ? songs[0] : seed, songs.Length > 0 ? songs : [seed]);
         }
         catch (MusicException error)
         {
@@ -214,9 +310,8 @@ public sealed class PlaybackService
         }
 
         _queue.PlayNext([song]);
-        QueueChanged?.Invoke();
+        QueueEdited();
         TrackChanged?.Invoke(); // Next becomes available
-        SaveQueue();
         StatusRaised?.Invoke(StatusTone.Pacing, $"Playing next: {song.Title}");
         return Task.CompletedTask;
     }
@@ -231,8 +326,7 @@ public sealed class PlaybackService
         }
 
         _queue.Append(songs);
-        QueueChanged?.Invoke();
-        SaveQueue();
+        QueueEdited();
         if (announce) StatusRaised?.Invoke(StatusTone.Pacing, songs.Count == 1 ? $"Added to queue: {songs[0].Title}" : $"Added {songs.Count} songs to the queue");
     }
 
@@ -249,13 +343,14 @@ public sealed class PlaybackService
         {
             _wantsToPlay = false;
             _player.Pause();
+            SaveQueue(); // the place survives a crash while paused
         }
         else if (!_loaded)
         {
             // After a relaunch the song is shown but not loaded; Play loads it where it was.
-            _ = PlayCurrentAsync(resumeAt: _resumeAt);
+            _ = PlayCurrentAsync(resumeAt: _resumeAt, fade: false);
         }
-        else
+        else if (EnsureOutput())
         {
             _wantsToPlay = true;
             _player.Play();
@@ -264,10 +359,33 @@ public sealed class PlaybackService
         PlayStateChanged?.Invoke();
     }
 
+    /// <summary>With no speakers or headphones connected there is nothing to play through: the
+    /// listener is told at once, rather than left watching a song load that can never sound.</summary>
+    private bool EnsureOutput()
+    {
+        if (Interop.AudioOutputs.HasOutput)
+        {
+            return true;
+        }
+
+        StatusRaised?.Invoke(StatusTone.Fault,
+            "No speakers or headphones are connected. Connect one, then press Play.");
+        return false;
+    }
+
     public async Task NextAsync()
     {
         if (CurrentSong is null)
         {
+            return;
+        }
+
+        // The next song already waiting on standby starts at once, with the skip's short fade.
+        if (_loaded && _queue.PeekNext(automatic: false) is { } next && _player.StandbyOccurrence == next.Id)
+        {
+            _queue.Advance(automatic: false);
+            _wantsToPlay = true;
+            BeginStandby(_player.FadesSkips ? Player.SkipFadeSeconds : 0);
             return;
         }
 
@@ -319,6 +437,7 @@ public sealed class PlaybackService
     {
         if (_loaded) _player.Seek(Math.Max(0, seconds));
         else _resumeAt = Math.Max(0, seconds);
+        PositionTick?.Invoke();
     }
 
     /// <summary>
@@ -341,7 +460,121 @@ public sealed class PlaybackService
         }
 
         SeekSeconds(Math.Max(0, target));
-        PositionTick?.Invoke();
+    }
+
+    // MARK: sleep timer
+
+    /// <summary>Whether a sleep timer is set, either a time or the end of the song.</summary>
+    public bool IsSleepArmed => _sleepAt is not null || _sleepAtEnd;
+
+    /// <summary>The countdown's length, kept so the menu can show which preset is set.</summary>
+    public int? SleepMinutes => _sleepMinutes;
+
+    /// <summary>Whether the timer stops after the song rather than at a time.</summary>
+    public bool SleepAtEnd => _sleepAtEnd;
+
+    /// <summary>The pill's words: the time left, or "End of song".</summary>
+    public string? SleepLabel
+    {
+        get
+        {
+            if (_sleepAtEnd)
+            {
+                return "End of song";
+            }
+
+            if (_sleepAt is not { } at)
+            {
+                return null;
+            }
+
+            var left = at - DateTimeOffset.Now;
+            if (left <= TimeSpan.Zero)
+            {
+                return "0:00 left";
+            }
+
+            var total = (int)Math.Ceiling(left.TotalSeconds);
+            return total >= 3600
+                ? $"{total / 3600}:{total % 3600 / 60:D2}:{total % 60:D2} left"
+                : $"{total / 60}:{total % 60:D2} left";
+        }
+    }
+
+    /// <summary>Stops playback after this many minutes.</summary>
+    public void SleepIn(int minutes)
+    {
+        if (minutes <= 0)
+        {
+            return;
+        }
+
+        _sleepAt = DateTimeOffset.Now.AddMinutes(minutes);
+        _sleepMinutes = minutes;
+        _sleepAtEnd = false;
+        _sleepTimer?.Start();
+        SleepChanged?.Invoke();
+        StatusRaised?.Invoke(StatusTone.Pacing, $"Sleep timer: {minutes} minutes");
+    }
+
+    /// <summary>Stops playback when the song playing now finishes. The song ends on its own,
+    /// without crossfading into the next.</summary>
+    public void SleepAtEndOfSong()
+    {
+        _sleepAt = null;
+        _sleepMinutes = null;
+        _sleepAtEnd = true;
+        _sleepTimer?.Stop();
+        _player.DiscardStandby();
+        SleepChanged?.Invoke();
+        StatusRaised?.Invoke(StatusTone.Pacing, "Sleep timer: after this song");
+    }
+
+    /// <summary>Turns the sleep timer off without touching playback.</summary>
+    public void CancelSleep()
+    {
+        if (!IsSleepArmed)
+        {
+            return;
+        }
+
+        _sleepAt = null;
+        _sleepMinutes = null;
+        _sleepAtEnd = false;
+        _sleepTimer?.Stop();
+        SleepChanged?.Invoke();
+        StatusRaised?.Invoke(StatusTone.Pacing, "Sleep timer off");
+        _ = PrepareNextAsync();
+    }
+
+    /// <summary>Called once a second while a timed sleep timer is set; the pill counts down.</summary>
+    private void TickSleep()
+    {
+        if (_sleepAt is not { } at)
+        {
+            _sleepTimer?.Stop();
+            return;
+        }
+
+        if (DateTimeOffset.Now < at)
+        {
+            SleepChanged?.Invoke();
+            return;
+        }
+
+        _sleepAt = null;
+        _sleepMinutes = null;
+        _sleepTimer?.Stop();
+        if (_wantsToPlay)
+        {
+            _wantsToPlay = false;
+            _player.Pause();
+            PlayStateChanged?.Invoke();
+            SaveQueue();
+        }
+
+        SleepChanged?.Invoke();
+        StatusRaised?.Invoke(StatusTone.Pacing, "Sleep timer ended: playback paused.");
     }
 
     public void SetVolumePercent(double percent) => _player.Volume = percent;
@@ -358,31 +591,27 @@ public sealed class PlaybackService
     {
         if (_queue.Remove(id))
         {
-            QueueChanged?.Invoke();
-            SaveQueue();
+            QueueEdited();
         }
     }
 
     public void ClearUpcoming()
     {
         _queue.ClearUpcoming();
-        QueueChanged?.Invoke();
+        QueueEdited();
         TrackChanged?.Invoke();
-        SaveQueue();
     }
 
     public void MoveUpcoming(int from, int to)
     {
         _queue.MoveUpcoming(from, to);
-        QueueChanged?.Invoke();
-        SaveQueue();
+        QueueEdited();
     }
 
     public void SetShuffle(bool on)
     {
         _queue.SetShuffle(on);
-        QueueChanged?.Invoke();
-        SaveQueue();
+        QueueEdited();
     }
 
     public void CycleRepeat()
@@ -393,16 +622,14 @@ public sealed class PlaybackService
             RepeatMode.All => RepeatMode.One,
             _ => RepeatMode.Off,
         };
-        QueueChanged?.Invoke();
-        SaveQueue();
+        QueueEdited();
     }
 
     public void SetAutoplay(bool on)
     {
         Autoplay = on;
-        QueueChanged?.Invoke();
+        QueueEdited();
         TrackChanged?.Invoke();
-        SaveQueue();
         if (on) _ = TopUpAsync();
     }
 
@@ -411,9 +638,21 @@ public sealed class PlaybackService
 
     public bool IsExtending => _extending;
 
+    /// <summary>The queue changed shape: redraw, keep it, and make sure what waits on standby is
+    /// still the song that plays next.</summary>
+    private void QueueEdited()
+    {
+        QueueChanged?.Invoke();
+        SaveQueue();
+        _ = PrepareNextAsync();
+    }
+
     // MARK: internals
 
-    private async Task PlayCurrentAsync(double resumeAt = 0)
+    /// <summary>Load and play the queue's current song. <paramref name="fade"/> is a change of
+    /// song the listener asked for: with crossfade on, the song playing fades out quickly while
+    /// this one loads and fades in. A reload of the same song after a failure never fades.</summary>
+    private async Task PlayCurrentAsync(double resumeAt = 0, bool fade = true)
     {
         if (_queue.Current is not { } item)
         {
@@ -422,28 +661,39 @@ public sealed class PlaybackService
 
         var song = item.Song;
         var generation = ++_generation;
+        // The old song leaves now, not when the new one has resolved: a skip is heard at once.
+        var fadeIn = fade && _player.FadesSkips ? Player.SkipFadeSeconds : 0;
+        _player.Leave(fadeIn);
         _currentStream = null;
         _loaded = false;
         _resolving = true;
         _wantsToPlay = true;
         _failedOnce = false;
-        _resumeAt = 0;
+        _stalledSince = null;
+        _resumeAt = resumeAt;
         _queue.TrimHistory(keeping: 50);
+        if (!Interop.AudioOutputs.HasOutput)
+        {
+            // The song is shown, ready where it is; Play loads it once there is a way to hear it.
+            _resolving = false;
+            _wantsToPlay = false;
+        }
+
         TrackChanged?.Invoke();
         QueueChanged?.Invoke();
         PlayStateChanged?.Invoke();
         SaveQueue();
-
-        _smtc?.UpdateTrack(song.Title, song.ArtistLine, song.Artwork?.Resized(96)?.ToString());
-        _smtc?.SetTimeline(0, song.Duration ?? 0);
-        _smtc?.UpdatePlaybackState(false);
-        _smtc?.SetTransport(CanPrev, CanNext);
+        UpdateSmtcTrack(song);
+        if (!EnsureOutput())
+        {
+            return;
+        }
 
         ResolvedStream stream;
         try
         {
             // The whole song on disk plays from the file, with no connection needed.
-            stream = App.AudioStore.CompleteStream(song.Id) ?? await EngineHost.Music.StreamAsync(song.Id);
+            stream = await ResolveAsync(song);
         }
         catch (MusicException error)
         {
@@ -461,16 +711,133 @@ public sealed class PlaybackService
         }
 
         _currentStream = stream;
-        // The start position travels with the load: the source attaches a moment
-        // later, so a seek asked for now would be lost.
-        _player.Load(stream, song, resumeAt);
+        // The start position travels with the load: the media opens a moment later, and the
+        // song must not sound its first second before it moves.
+        _player.Load(stream, song, item.Id, resumeAt, fadeIn);
         _loaded = true;
         _player.Play();
+        BeganSong(song);
+    }
+
+    private static async Task<ResolvedStream> ResolveAsync(Song song) =>
+        App.AudioStore.CompleteStream(song.Id) ?? await EngineHost.Music.StreamAsync(song.Id);
+
+    /// <summary>What every new play of a song does once its audio is in the player.</summary>
+    private void BeganSong(Song song)
+    {
         App.Library.RecordPlay(song);
         App.Library.Flush(); // the listening time of the finished song is on disk now
         TrackChanged?.Invoke(); // the exact duration is known now
+        PlayStateChanged?.Invoke();
         Koda.Services.LyricsService.Prefetch(song); // the words are ready before anyone asks
         _ = TopUpAsync();
+        _ = PrepareNextAsync();
+    }
+
+    /// <summary>The queue has already moved to the song waiting on standby: it becomes the
+    /// playing song, the last one fading out over <paramref name="fade"/> seconds.</summary>
+    private void BeginStandby(double fade)
+    {
+        if (_queue.Current is not { } item || !_player.SwitchToStandby(fade))
+        {
+            _ = PlayCurrentAsync();
+            return;
+        }
+
+        ++_generation;
+        _currentStream = _player.Stream;
+        _loaded = true;
+        _resolving = false;
+        _failedOnce = false;
+        _stalledSince = null;
+        _resumeAt = 0;
+        _queue.TrimHistory(keeping: 50);
+        QueueChanged?.Invoke();
+        SaveQueue();
+        UpdateSmtcTrack(item.Song);
+        BeganSong(item.Song);
+    }
+
+    private void UpdateSmtcTrack(Song song)
+    {
+        _smtc?.UpdateTrack(song.Title, song.ArtistLine, song.Artwork?.Resized(96)?.ToString());
+        _smtc?.SetTimeline(0, song.Duration ?? 0);
+        _smtc?.UpdatePlaybackState(false);
+        _smtc?.SetTransport(CanPrev, CanNext);
+    }
+
+    /// <summary>Tell Last.fm the current song started, once per play.</summary>
+    private void ReportStart()
+    {
+        if (_reportedGeneration == _generation || _queue.Current is not { } item)
+        {
+            return;
+        }
+
+        _reportedGeneration = _generation;
+        ItemStarted?.Invoke(item);
+    }
+
+    /// <summary>Keep the song that plays next loaded on standby, once the current one is near its
+    /// end: under repeat one that is the same song again, from its start.</summary>
+    private async Task PrepareNextAsync()
+    {
+        if (!_loaded || _queue.Current is not { } current || !_player.IsNearEnd)
+        {
+            return;
+        }
+
+        var next = _sleepAtEnd ? null : _queue.PeekNext(automatic: true);
+        if (next is null)
+        {
+            _player.DiscardStandby();
+            return;
+        }
+
+        if (_player.StandbyOccurrence == next.Id)
+        {
+            return;
+        }
+
+        _player.DiscardStandby();
+        var token = ++_nextGeneration;
+        ResolvedStream stream;
+        try
+        {
+            // Repeat one plays the same bytes again: the stream already playing, never a fresh
+            // resolve that could pick another format and start the song's file over under it.
+            stream = next.Song.Id == current.Song.Id && _currentStream is { } same
+                ? App.AudioStore.CompleteStream(same.VideoId) ?? same
+                : await ResolveAsync(next.Song);
+        }
+        catch (MusicException)
+        {
+            return; // loaded again, the ordinary way, when it is reached
+        }
+
+        if (token != _nextGeneration || !_loaded || _queue.Current?.Id != current.Id ||
+            _queue.PeekNext(automatic: true)?.Id != next.Id || _sleepAtEnd)
+        {
+            return;
+        }
+
+        _player.Preload(stream, next.Song, next.Id);
+    }
+
+    /// <summary>Playback ran into the crossfade's moment: the song waiting on standby fades in over
+    /// what is left, as long as it is the song the queue would play anyway.</summary>
+    private void OnCrossfadeDue()
+    {
+        if (!_wantsToPlay || _sleepAtEnd || _queue.PeekNext(automatic: true) is not { } next ||
+            _player.StandbyOccurrence != next.Id)
+        {
+            return;
+        }
+
+        var left = DurationSeconds - PositionSeconds;
+        var fade = Math.Min(_player.CrossfadeSeconds, Math.Max(1, left));
+        _queue.Advance(automatic: true);
+        BeginStandby(fade);
     }
 
     /// <summary>Autoplay keeps something waiting: with the last songs reached, the radio follows.</summary>
@@ -479,7 +846,8 @@ public sealed class PlaybackService
             ? ExtendWithRadioAsync(thenAdvance: false)
             : Task.CompletedTask;
 
-    /// <summary>The queue ran (or is running) out: append the radio of the last song.</summary>
+    /// <summary>The queue ran (or is running) out: append the radio of the last song, leaving out
+    /// the songs the listener asked to hear less of.</summary>
     private async Task ExtendWithRadioAsync(bool thenAdvance)
     {
         if (_extending || _queue.Items.Count == 0)
@@ -500,7 +868,7 @@ public sealed class PlaybackService
             }
 
             var known = _queue.Items.TakeLast(100).Select(i => i.Song.Id).ToHashSet();
-            var fresh = radio.Songs.Where(s => !known.Contains(s.Id)).ToArray();
+            var fresh = radio.Songs.Where(s => !known.Contains(s.Id) && !App.Library.IsUnwanted(s)).ToArray();
             if (fresh.Length == 0)
             {
                 return;
@@ -513,6 +881,10 @@ public sealed class PlaybackService
             if (thenAdvance && _queue.Advance(automatic: false) is not null)
             {
                 await PlayCurrentAsync();
+            }
+            else
+            {
+                _ = PrepareNextAsync();
             }
         }
         catch (MusicException error)
@@ -538,18 +910,58 @@ public sealed class PlaybackService
             return;
         }
 
+        // The sleep timer's "end of song": the queue moves on to the next song, paused and
+        // ready, as on the Mac. Play picks it up from its start.
+        if (_sleepAtEnd)
+        {
+            _sleepAtEnd = false;
+            _wantsToPlay = false;
+            if (_queue.Advance(automatic: true) is not null)
+            {
+                _player.Stop();
+                _loaded = false;
+                _currentStream = null;
+                _resumeAt = 0;
+                TrackChanged?.Invoke();
+                QueueChanged?.Invoke();
+                SaveQueue();
+            }
+            else
+            {
+                _player.Pause();
+                _player.Seek(0);
+            }
+
+            PlayStateChanged?.Invoke();
+            SleepChanged?.Invoke();
+            StatusRaised?.Invoke(StatusTone.Pacing, "Sleep timer ended: stopped after the song.");
+            return;
+        }
+
+        // Ended without a crossfade (crossfade off, seeked past its moment, or a short song):
+        // the song waiting on standby goes straight on.
+        if (_queue.PeekNext(automatic: true) is { } waiting && _player.StandbyOccurrence == waiting.Id)
+        {
+            _queue.Advance(automatic: true);
+            BeginStandby(0);
+            return;
+        }
+
         var before = _queue.Current?.Id;
         if (_queue.Advance(automatic: true) is { } next)
         {
             if (next.Id == before)
             {
-                // Repeat one: the same song again, already loaded.
+                // Repeat one with nothing waiting: the same song again, already loaded. It is
+                // a new play for history and Last.fm.
+                ++_generation;
                 _player.Seek(0);
                 _player.Play();
+                BeganSong(next.Song);
                 return;
             }
 
-            await PlayCurrentAsync();
+            await PlayCurrentAsync(fade: false);
             return;
         }
 
@@ -581,11 +993,14 @@ public sealed class PlaybackService
         }
 
         // One honest retry: forget the URL (and the possibly refused visitor), resolve again.
-        if (_failedOnce)
+        // Nothing to play through is not a broken stream: no retry fixes it.
+        if (_failedOnce || !Interop.AudioOutputs.HasOutput)
         {
             _wantsToPlay = false;
             _resolving = false;
+            _player.Pause();
             PlayStateChanged?.Invoke();
+            if (!EnsureOutput()) return;
             StatusRaised?.Invoke(StatusTone.Fault, $"{song.Title} didn't play ({reason}).");
             return;
         }
@@ -594,10 +1009,17 @@ public sealed class PlaybackService
         // from there - a stream that fails a minute in must not send the listener back
         // to the first second of the song they were in.
         var resumeAt = PositionSeconds;
+        var generation = _generation;
 
         _recovering = true;
         _failedOnce = true;
-        App.AudioStore.Discard(song.Id);
+        // Only a whole file that fails to play is damaged and fetched again; the bytes of a
+        // stream that broke part way are good and stay, so the retry does not start over.
+        if (App.AudioStore.GetEntry(song.Id)?.IsComplete == true)
+        {
+            App.AudioStore.Discard(song.Id);
+        }
+
         try
         {
             await EngineHost.Music.StreamFailedAsync(song.Id);
@@ -607,15 +1029,25 @@ public sealed class PlaybackService
             Report(error);
         }
 
-        var keep = _failedOnce;
+        var reloaded = false;
         try
         {
-            await PlayCurrentAsync(resumeAt: resumeAt);
+            // The listener moved on while the identity was refreshed: nothing to recover.
+            if (generation == _generation && CurrentSong?.Id == song.Id)
+            {
+                reloaded = true;
+                await PlayCurrentAsync(resumeAt: resumeAt, fade: false);
+            }
         }
         finally
         {
             _recovering = false;
-            _failedOnce = keep;
+            // The reload is this song's one retry; another failure soon after gives up.
+            if (reloaded && CurrentSong?.Id == song.Id)
+            {
+                _failedOnce = true;
+                _heardSinceRetry = 0;
+            }
         }
     }
 
@@ -670,6 +1102,9 @@ public sealed class PlaybackService
         App.AudioStore.Flush();
         _player.Dispose();
         _smtc?.Reset();
+        // The Discord card comes down with the music; downloads pick up again next launch.
+        App.Discord.Dispose();
+        App.Downloads.Dispose();
         EngineHost.Music.Dispose();
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Reflection;
 using Koda.Core;
 using Koda.Helpers;
@@ -7,7 +8,9 @@ using Koda.Interop;
 using Koda.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Navigation;
+using Windows.Storage.Pickers;
 
 namespace Koda.Pages;
 
@@ -17,8 +20,8 @@ namespace Koda.Pages;
 /// and what this is.
 ///
 /// Every control here is wired to something that works: there is no switch that
-/// pretends. The ones the family has and Windows has not yet (crossfade, sign-in,
-/// Last.fm, Discord) are not here until they are.
+/// pretends. The ones the family has and Windows has not yet (profiles and sign-in,
+/// Discord, videos) are not here until they are.
 /// </summary>
 public sealed partial class SettingsPage : Page
 {
@@ -33,7 +36,30 @@ public sealed partial class SettingsPage : Page
     {
         base.OnNavigatedTo(e);
         Load();
+        EnergySaver.Changed += OnEnergySaverChanged;
+        App.Library.Changed += OnLibraryChanged;
+        App.Downloads.Changed += OnDownloadsChanged;
+        App.LastFm.Changed += OnLastFmChanged;
+        App.Discord.Changed += OnDiscordChanged;
     }
+
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        base.OnNavigatedFrom(e);
+        EnergySaver.Changed -= OnEnergySaverChanged;
+        App.Library.Changed -= OnLibraryChanged;
+        App.Downloads.Changed -= OnDownloadsChanged;
+        App.LastFm.Changed -= OnLastFmChanged;
+        App.Discord.Changed -= OnDiscordChanged;
+    }
+
+    private void OnDiscordChanged() => DispatcherQueue.TryEnqueue(RefreshDiscord);
+
+    private void OnLibraryChanged() => DispatcherQueue.TryEnqueue(RefreshSuggestLess);
+
+    private void OnDownloadsChanged() => DispatcherQueue.TryEnqueue(RefreshDownloads);
+
+    private void OnLastFmChanged() => DispatcherQueue.TryEnqueue(RefreshLastFm);
 
     /// <summary>Puts the listener's choices into the controls.</summary>
     private void Load()
@@ -42,6 +68,11 @@ public sealed partial class SettingsPage : Page
         _loaded = false;
 
         AutoplaySwitch.IsOn = settings.Autoplay;
+        NormalizeSwitch.IsOn = settings.NormalizesVolume;
+        CrossfadeSwitch.IsOn = settings.Crossfades;
+        CrossfadeSlider.Value = settings.CrossfadeSeconds;
+        CrossfadeSlider.IsEnabled = settings.Crossfades;
+        CrossfadeValue.Text = $"{settings.CrossfadeSeconds:F0} s";
         SkipButtonsSwitch.IsOn = settings.ShowsSkipButtons;
 
         SkipBox.Items.Clear();
@@ -54,6 +85,8 @@ public sealed partial class SettingsPage : Page
 
         CloseToTraySwitch.IsOn = settings.CloseToTray;
         OpenAtLoginSwitch.IsOn = Startup.IsEnabled;
+        NotificationsSwitch.IsOn = settings.ShowsSongNotifications;
+        RefreshEnergySaver();
 
         YouLyPlusSwitch.IsOn = settings.IsEnabled(LyricsSource.YouLyPlus);
         BetterLyricsSwitch.IsOn = settings.IsEnabled(LyricsSource.BetterLyrics);
@@ -66,13 +99,8 @@ public sealed partial class SettingsPage : Page
         KeepHistorySwitch.IsOn = settings.SavesListeningHistory;
         KeepSearchHistorySwitch.IsOn = settings.SavesSearchHistory;
 
-        LyricsSizeBox.Items.Clear();
-        foreach (var size in Enum.GetValues<LyricsSize>())
-        {
-            LyricsSizeBox.Items.Add(SizeLabel(size));
-        }
-
-        LyricsSizeBox.SelectedIndex = Array.IndexOf(Enum.GetValues<LyricsSize>(), settings.LyricsSize);
+        LyricsSizeSlider.Value = settings.LyricsFontSize;
+        LyricsSizeValue.Text = $"{settings.LyricsFontSize:F0}";
 
         ThemeBox.Items.Clear();
         foreach (var theme in Enum.GetValues<Theme>())
@@ -93,19 +121,17 @@ public sealed partial class SettingsPage : Page
         CacheLimitBox.SelectedIndex = Array.IndexOf(Enum.GetValues<CacheLimit>(), settings.CacheLimit);
 
         var version = Assembly.GetExecutingAssembly().GetName().Version;
-        VersionText.Text = $"Koda {version?.ToString(3) ?? "0.1.0"} for Windows 11";
-        RepositoryLink.Content = "github.com/Ivorisnoob/Koda-Windows";
+        VersionText.Text = $"Koda {version?.ToString(3) ?? "0.1.0"}";
+
+        AndroidImportText.Text = AndroidImport.Explanation;
 
         _loaded = true;
         RefreshStorage();
+        RefreshDownloads();
+        RefreshSuggestLess();
+        RefreshLastFm();
+        RefreshDiscord();
     }
-
-    private static string SizeLabel(LyricsSize size) => size switch
-    {
-        LyricsSize.Small => "Small",
-        LyricsSize.Large => "Large",
-        _ => "Default",
-    };
 
     private static string ThemeLabel(Theme theme) => theme switch
     {
@@ -114,8 +140,7 @@ public sealed partial class SettingsPage : Page
         _ => "Automatic",
     };
 
-    private static string Size(long bytes) =>
-        bytes >= 1_000_000_000 ? $"{bytes / 1_000_000_000.0:F1} GB" : $"{bytes / 1_000_000} MB";
+    private static string Size(long bytes) => Format.Bytes(bytes);
 
     // MARK: playback
 
@@ -126,10 +151,56 @@ public sealed partial class SettingsPage : Page
         Playback.PlaybackService.Instance.SetAutoplay(AutoplaySwitch.IsOn);
     }
 
+    private void OnNormalizeToggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        App.Settings.Update(s => s.NormalizesVolume = NormalizeSwitch.IsOn);
+    }
+
+    private void OnCrossfadeToggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        CrossfadeSlider.IsEnabled = CrossfadeSwitch.IsOn;
+        App.Settings.Update(s => s.Crossfades = CrossfadeSwitch.IsOn);
+    }
+
+    private void OnCrossfadeLengthChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        // Minimum="1" in the XAML moves the value while the page is still being built.
+        if (CrossfadeValue is null) return;
+        var seconds = Math.Round(e.NewValue);
+        CrossfadeValue.Text = $"{seconds:F0} s";
+        if (!_loaded || seconds == App.Settings.CrossfadeSeconds) return;
+        App.Settings.Update(s => s.CrossfadeSeconds = seconds);
+    }
+
     private void OnCloseToTrayToggled(object sender, RoutedEventArgs e)
     {
         if (!_loaded) return;
         App.SetCloseToTray(CloseToTraySwitch.IsOn);
+    }
+
+    private void OnNotificationsToggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        App.Settings.Update(s => s.ShowsSongNotifications = NotificationsSwitch.IsOn);
+    }
+
+    private void OnEnergySaverChanged() => RefreshEnergySaver();
+
+    private void RefreshEnergySaver() =>
+        EnergySaverText.Text = EnergySaver.IsOn ? "On" : "Off";
+
+    private void OnEnergySaverSettingsClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo("ms-settings:batterysaver") { UseShellExecute = true });
+        }
+        catch (Exception)
+        {
+            // A locked-down Settings app is not a reason to fail the page.
+        }
     }
 
     private void OnSkipButtonsToggled(object sender, RoutedEventArgs e)
@@ -199,11 +270,12 @@ public sealed partial class SettingsPage : Page
         App.Settings.Update(s => s.DuetSides = DuetSidesSwitch.IsOn);
     }
 
-    private void OnLyricsSizeChanged(object sender, SelectionChangedEventArgs e)
+    private void OnLyricsSizeChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
-        if (!_loaded || LyricsSizeBox.SelectedIndex < 0) return;
-        var size = Enum.GetValues<LyricsSize>()[LyricsSizeBox.SelectedIndex];
-        App.Settings.Update(s => s.LyricsSize = size);
+        if (!_loaded) return;
+        var size = Math.Round(e.NewValue);
+        LyricsSizeValue.Text = $"{size:F0}";
+        App.Settings.Update(s => s.LyricsFontSize = size);
     }
 
     private void OnRelookLyricsClick(object sender, RoutedEventArgs e)
@@ -283,6 +355,219 @@ public sealed partial class SettingsPage : Page
     {
         var limit = (long)App.Settings.CacheLimit;
         CacheSizeText.Text = $"{Size(App.AudioStore.CacheBytes)} of {Size(limit)} used.";
+    }
+
+    // MARK: suggest less
+
+    /// <summary>The songs and artists kept out of what Koda suggests, each with a way back.</summary>
+    private void RefreshSuggestLess()
+    {
+        var hidden = App.Library.NotInterested;
+        SuggestLessNote.Text = hidden.IsEmpty
+            ? "Choose Suggest less on a song to keep it, or its artist, out of Home, mixes, radio and autoplay."
+            : "Kept out of Home, mixes, radio and autoplay. Songs you pick yourself still play.";
+        SuggestLessList.Children.Clear();
+        foreach (var artist in hidden.Artists)
+        {
+            AddSuggestLessRow(artist.Name, "Artist", () => App.Library.Unhide(artist));
+        }
+
+        foreach (var song in hidden.Songs)
+        {
+            AddSuggestLessRow(song.Title, song.ArtistLine, () => App.Library.Unhide(song));
+        }
+    }
+
+    private void AddSuggestLessRow(string title, string detail, Action again)
+    {
+        SuggestLessList.Children.Add(new Border { Style = (Style)Resources["SettingsDivider"] });
+        var row = new Grid { Style = (Style)Resources["SettingsRow"] };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 2 };
+        text.Children.Add(new TextBlock
+        {
+            Text = title,
+            Style = (Style)Application.Current.Resources["BodyStrongTextBlockStyle"],
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        });
+        text.Children.Add(new TextBlock
+        {
+            Text = detail,
+            Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
+            Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        });
+        row.Children.Add(text);
+        var button = new Button { Content = "Suggest again", VerticalAlignment = VerticalAlignment.Center };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, $"Suggest {title} again");
+        button.Click += (_, _) => again();
+        Grid.SetColumn(button, 1);
+        row.Children.Add(button);
+        SuggestLessList.Children.Add(row);
+    }
+
+    // MARK: last.fm
+
+    private void RefreshLastFm()
+    {
+        var lastFm = App.LastFm;
+        LastFmTitle.Text = lastFm.IsConnected
+            ? lastFm.IsEnabled ? $"Connected as {lastFm.User}" : $"Connected as {lastFm.User}, scrobbling off"
+            : "Not connected";
+        LastFmButton.Content = lastFm.IsConnected ? "Open" : "Connect…";
+    }
+
+    private void OnLastFmClick(object sender, RoutedEventArgs e) => Navigator.Go(typeof(LastFmPage));
+
+    // MARK: discord
+
+    /// <summary>The switch, and a line that says what Discord is doing with it.</summary>
+    private void RefreshDiscord()
+    {
+        var settings = App.Settings;
+        DiscordSwitch.IsOn = settings.SharesOnDiscord;
+        DiscordText.Text = !settings.SharesOnDiscord
+            ? "Your Discord profile shows \u201cListening to\u201d the song, with its cover and a link to it on YouTube Music. It needs the Discord app open on this PC."
+            : !settings.SavesListeningHistory
+                ? "Paused while listening history is off."
+                : App.Discord.Status switch
+                {
+                    Koda.Core.Discord.DiscordPresence.Phase.Showing => "Showing on your profile.",
+                    Koda.Core.Discord.DiscordPresence.Phase.Unavailable => "Discord isn\u2019t open. The song shows as soon as it is.",
+                    Koda.Core.Discord.DiscordPresence.Phase.Refused => "Discord didn\u2019t accept this song\u2019s card.",
+                    _ => "Shows the next song you play.",
+                };
+    }
+
+    private void OnDiscordToggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded || DiscordSwitch.IsOn == App.Settings.SharesOnDiscord) return;
+        App.Settings.Update(s => s.SharesOnDiscord = DiscordSwitch.IsOn);
+        RefreshDiscord();
+    }
+
+    // MARK: downloads
+
+    private void RefreshDownloads()
+    {
+        var count = App.Downloads.Songs.Length;
+        DownloadsText.Text = count == 0
+            ? "Downloaded songs play without a connection and stay until you remove them."
+            : $"{Format.Songs(count)} · {Format.Bytes(App.Downloads.Bytes)}. They play without a connection and stay until you remove them.";
+        RemoveDownloadsButton.IsEnabled = count > 0;
+    }
+
+    private void OnShowDownloadsClick(object sender, RoutedEventArgs e) => Navigator.Go(typeof(SongsPage), "downloads");
+
+    private async void OnRemoveDownloadsClick(object sender, RoutedEventArgs e)
+    {
+        if (await Dialogs.ConfirmAsync("Remove all downloads?",
+                "They'll play from YouTube again, which needs a connection.", "Remove All"))
+        {
+            App.Downloads.RemoveAll();
+        }
+    }
+
+    // MARK: backup
+
+    private void OnAndroidImportClick(object sender, RoutedEventArgs e) => _ = AndroidImport.RunAsync();
+
+    private async void OnExportLibraryClick(object sender, RoutedEventArgs e)
+    {
+        if (App.Shell is not { } shell)
+        {
+            return;
+        }
+
+        var picker = new FileSavePicker
+        {
+            SuggestedFileName = $"koda-library-{DateTime.Now:yyyy-MM-dd}",
+        };
+        WinRT.Interop.InitializeWithWindow.Initialize(
+            picker, WinRT.Interop.WindowNative.GetWindowHandle(shell));
+        picker.FileTypeChoices.Add("Koda library backup", new List<string> { ".json" });
+
+        var file = await picker.PickSaveFileAsync();
+        if (file is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await File.WriteAllBytesAsync(file.Path, App.Library.BackupData());
+            Notice("The library was exported.");
+        }
+        catch (Exception error)
+        {
+            Notice($"The library couldn't be written: {error.Message}");
+        }
+    }
+
+    private async void OnRestoreLibraryClick(object sender, RoutedEventArgs e)
+    {
+        if (App.Shell is not { } shell)
+        {
+            return;
+        }
+
+        var picker = new FileOpenPicker();
+        WinRT.Interop.InitializeWithWindow.Initialize(
+            picker, WinRT.Interop.WindowNative.GetWindowHandle(shell));
+        picker.FileTypeFilter.Add(".json");
+        picker.FileTypeFilter.Add("*");
+
+        var file = await picker.PickSingleFileAsync();
+        if (file is null)
+        {
+            return;
+        }
+
+        var confirm = new ContentDialog
+        {
+            Title = "Restore this backup?",
+            Content = "Likes, playlists, saved albums, history, stats and lyrics offsets here are replaced with the file's. This cannot be undone.",
+            PrimaryButtonText = "Restore",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot,
+        };
+        if (await confirm.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        try
+        {
+            App.Library.Restore(await File.ReadAllBytesAsync(file.Path));
+            Notice("The library was restored from the backup.");
+        }
+        catch (LibraryBackupException)
+        {
+            Notice("That file isn't a Koda library backup.");
+        }
+        catch (Exception error)
+        {
+            Notice($"The backup couldn't be read: {error.Message}");
+        }
+    }
+
+    private void OnOpenDataFolderClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"\"{App.DataDirectory}\"",
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception)
+        {
+            Notice($"Koda's data is in {App.DataDirectory}.");
+        }
     }
 
     // MARK: about

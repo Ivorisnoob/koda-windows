@@ -41,7 +41,7 @@
                 <Button x:Name="ClearButton" Visibility="Collapsed" Click="OnClearClick" Padding="14,7" ToolTipService.ToolTip="Clear your listening history">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE74D;" FontSize="14" />
-                        <TextBlock Text="Clear" />
+                        <TextBlock x:Name="ClearLabel" Text="Clear" />
                     </StackPanel>
                 </Button>
             </StackPanel>

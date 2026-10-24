@@ -36,6 +36,7 @@ public sealed partial class HomePage : Page
     private Saved? _state;
     private bool _loading;
     private int _pickCount = 12;
+    private double _topWidth;
 
     public HomePage()
     {
@@ -184,7 +185,8 @@ public sealed partial class HomePage : Page
         try
         {
             var radio = await EngineHost.Music.RadioAsync(recent[0].Id);
-            return [.. radio.Songs.Where(s => s.Id != recent[0].Id).Take(20)];
+            // What the listener asked to hear less of stays out of everything Home suggests.
+            return [.. App.Library.Offerable(radio.Songs.Where(s => s.Id != recent[0].Id)).Take(20)];
         }
         catch (MusicException)
         {
@@ -213,7 +215,7 @@ public sealed partial class HomePage : Page
             }
         }));
         var skip = taste.Seeds.Select(s => s.Id).Concat(recent.Take(10).Select(s => s.Id));
-        var songs = Taste.Weave(radios, skip);
+        var songs = App.Library.Offerable(Taste.Weave(radios, skip));
         return songs.Length == 0 ? null : new Mix([.. taste.Artists.Take(3)], songs, true);
     }
 
@@ -221,8 +223,8 @@ public sealed partial class HomePage : Page
         new([.. trending.Select(Taste.LeadArtist).Distinct().Order().Take(3)], trending, false);
 
     private static Song[] Trending(ShelfPage? explore) =>
-        explore?.Shelves.FirstOrDefault(s => s.Title == "Trending")?.Items
-            .OfType<MusicItem.SongRecord>().Select(s => s.Value).ToArray() ?? [];
+        App.Library.Offerable(explore?.Shelves.FirstOrDefault(s => s.Title == "Trending")?.Items
+            .OfType<MusicItem.SongRecord>().Select(s => s.Value) ?? []);
 
     private static Shelf[] DedupeShelves(Shelf[] shelves)
     {
@@ -337,23 +339,53 @@ public sealed partial class HomePage : Page
 
     private void OnTopSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        // Mix beside the picks when there is room, above them when not.
-        var wide = e.NewSize.Width >= 900;
-        MixColumn.Width = wide ? new GridLength(380) : new GridLength(1, GridUnitType.Star);
+        _topWidth = e.NewSize.Width;
+        LayoutTop();
+    }
+
+    /// <summary>
+    /// Your Mix beside Quick picks whenever both fit (the card needs about 340 for its three
+    /// covers, a column of picks 280), above them only when the window is narrower than that.
+    /// The picks' columns stretch to the room they have, so neither layout leaves an empty strip
+    /// down the right-hand side.
+    /// </summary>
+    private void LayoutTop()
+    {
+        var width = _topWidth;
+        if (width <= 0)
+        {
+            return;
+        }
+
+        const double gap = 28;
+        var wide = width >= 340 + gap + 280;
+        var mix = wide ? Math.Clamp(width * 0.4, 340, 380) : width;
+        MixColumn.Width = wide ? new GridLength(mix) : new GridLength(1, GridUnitType.Star);
         Grid.SetColumn(PicksPanel, wide ? 1 : 0);
         Grid.SetRow(PicksPanel, wide ? 0 : 1);
-        MixCard.MaxWidth = wide ? double.PositiveInfinity : 520;
+        MixCard.MaxWidth = double.PositiveInfinity;
         MixCard.HorizontalAlignment = HorizontalAlignment.Stretch;
 
-        // Four rows, as many 280-wide columns as fit, at most three.
-        var room = wide ? e.NewSize.Width - 380 - 28 : e.NewSize.Width;
-        var count = Math.Clamp((int)(room / 284), 1, 3) * 4;
+        // As many columns of at least 280 as fit, at most three, sharing the room evenly; four
+        // rows beside the card, as tall as it is.
+        var room = wide ? width - mix - gap : width;
+        var columns = Math.Clamp((int)(room / 280), 1, 3);
+        if (Picks.ItemsPanelRoot is ItemsWrapGrid grid)
+        {
+            // Each item keeps a 4px gap on its right.
+            grid.ItemWidth = Math.Max(200, Math.Floor(room / columns) - 4);
+        }
+
+        var count = columns * 4;
         if (count != _pickCount)
         {
             _pickCount = count;
             if (_state is { } state) Picks.ItemsSource = state.Picks.Take(_pickCount).ToArray();
         }
     }
+
+    /// <summary>The picks' panel exists only once the list is loaded; its columns are sized then.</summary>
+    private void OnPicksLoaded(object sender, RoutedEventArgs e) => LayoutTop();
 
     private void OnPickClick(object sender, ItemClickEventArgs e)
     {

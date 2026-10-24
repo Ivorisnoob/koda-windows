@@ -1,393 +1,519 @@
 using System;
+using System.Diagnostics;
 using Koda.Core;
+using Microsoft.UI.Dispatching;
 using Windows.Devices.Enumeration;
-using Windows.Media.Core;
 using Windows.Media.Playback;
 
 namespace Koda.Playback;
 
 /// <summary>
-/// The audio voice over Media Foundation: the OS Windows.Media.Playback.MediaPlayer
-/// projection with CommandManager DISABLED. Streams ride our own transport
-/// (Koda.Core's CachingLoader over our ranged HttpClient), because Media
-/// Foundation's built-in fetch of googlevideo URLs cannot survive inside the
-/// WinUI host; it never floats its own SMTC card, so the system flyout keeps
-/// exactly one Koda entry - the manual window-bound SmtcController.
+/// The sound Koda makes, over up to three <see cref="Voice"/>s, the Mac Player's model:
+/// <list type="bullet">
+/// <item><b>main</b>, the song the queue says is playing;</item>
+/// <item><b>standby</b>, the next song loaded and paused, so it can start the moment the
+/// crossfade does (or, with crossfade off, the moment the song ends, without a gap);</item>
+/// <item><b>tail</b>, the last main song playing on by itself while it fades out.</item>
+/// </list>
+/// Each voice's level is Koda's volume times the loudness levelling times its fade. The
+/// fades are equal power (sine in, cosine out), so two songs together stay as loud as one.
+///
+/// Only the main voice speaks for playback: an end, a failure or a state change from a
+/// voice that is no longer main is dropped, so a song fading out never moves the queue.
+/// Every event is raised on the UI thread.
 /// </summary>
 public sealed class Player : IDisposable
 {
-    private MediaPlayer? _player;
-    private MediaSource? _source;
-    private Koda.Core.Playback.CachingLoader? _loader;
-    /// <summary>The render device the listener chose; null follows the system default.</summary>
-    private DeviceInformation? _audioDevice;
-    private readonly object _attach = new();
-    /// <summary>Bumped per Load and Stop, so a source that opens late for an old track is dropped.</summary>
-    private int _generation;
-    /// <summary>Where the song must start once the media is ready to be moved there.</summary>
-    private double _pendingPosition;
-    private bool _wantsPlay;
+    /// <summary>The fade a skip gets with crossfade on: long enough not to click, short enough to feel instant.</summary>
+    public const double SkipFadeSeconds = 0.6;
 
-    /// <summary>The track reached its end (raised off the UI thread).</summary>
+    /// <summary>How long before the crossfade the next song is loaded: enough to buffer on a slow
+    /// network, late enough that the playing song has usually been fetched whole, so repeat one
+    /// reads its second copy from the file.</summary>
+    private const double PreloadLeadSeconds = 30;
+
+    private readonly Stopwatch _time = Stopwatch.StartNew();
+    private DispatcherQueue? _dispatch;
+    private DispatcherQueueTimer? _clock;
+    private Voice? _main;
+    private Voice? _standby;
+    private Voice? _tail;
+    /// <summary>The render device the listener chose; null follows the system default.</summary>
+    private DeviceInformation? _device;
+    private double _volume = 1;
+    private bool _muted;
+    private bool _normalizes = true;
+    private double _crossfadeSeconds = 5;
+    private bool _crossfades = true;
+    /// <summary>The listener asked the main voice to play.</summary>
+    private bool _playing;
+
+    /// <summary>How far the main song has faded in, 0 to 1.</summary>
+    private double _fadeGain = 1;
+    private double _fadeInStart;
+    private double _fadeInLength;
+
+    /// <summary>The tail's level when it was let go, and its fade.</summary>
+    private double _tailFrom;
+    private double _tailStart;
+    private double _tailLength;
+
+    /// <summary>The main song's last seen position, to tell playback running across the
+    /// crossfade's moment from a seek landing past it.</summary>
+    private double _lastPosition = -1;
+    private bool _crossfadeRaised;
+    private bool _nearEndRaised;
+
+    /// <summary>The main song reached its end.</summary>
     public event Action? Ended;
 
-    /// <summary>Media Foundation gave up (raised off the UI thread; human reason).</summary>
+    /// <summary>The main song could not be read or played (human reason).</summary>
     public event Action<string>? Failed;
 
-    /// <summary>Every playback-state change (raised off the UI thread).</summary>
+    /// <summary>The main song's playback state changed.</summary>
     public event Action<MediaPlayerState>? StateReached;
 
-    public Player()
+    /// <summary>Playback ran into the moment the crossfade should begin.</summary>
+    public event Action? CrossfadeDue;
+
+    /// <summary>The main song is close enough to its end that the next one should be loaded.</summary>
+    public event Action? NearEnd;
+
+    public void Connect(DispatcherQueue dispatch)
     {
-        _player = NewPlayer(100, muted: false);
+        _dispatch = dispatch;
+        _clock = dispatch.CreateTimer();
+        _clock.Interval = TimeSpan.FromMilliseconds(33);
+        _clock.Tick += (_, _) => Tick();
     }
 
-    /// <summary>
-    /// A fresh MediaPlayer, wired the one way Koda wants: no CommandManager, the
-    /// chosen render device, and no autoplay. Every per-track player is built here,
-    /// so an output change survives a skip.
-    /// </summary>
-    private MediaPlayer NewPlayer(double volume, bool muted)
+    // MARK: reading
+
+    public MediaPlayerState State => _main?.State ?? MediaPlayerState.Closed;
+
+    public double PositionSeconds => _main?.PositionSeconds ?? 0;
+
+    /// <summary>The stream the main song plays from.</summary>
+    public ResolvedStream? Stream => _main?.Stream;
+
+    /// <summary>The queue occurrence waiting on standby, if any.</summary>
+    public Guid? StandbyOccurrence => _standby?.Occurrence;
+
+    /// <summary>Whether a song changing now should fade: crossfade is on and sound is playing.</summary>
+    public bool FadesSkips => _crossfades && _main?.IsSounding == true;
+
+    /// <summary>Whether the main song is within reach of its end, where the next one is loaded.</summary>
+    public bool IsNearEnd => _main is { } main && Remaining(main) is { } left && left <= Lead;
+
+    /// <summary>The device in use, or null for the system default.</summary>
+    public DeviceInformation? AudioDevice => _device;
+
+    // MARK: settings
+
+    /// <summary>Koda's own volume, 0 to 100, under the system's.</summary>
+    public double Volume
     {
-        var player = new MediaPlayer { AutoPlay = false };
-        // CommandManager off: the system flyout must stay ours.
-        player.CommandManager.IsEnabled = false;
-        if (_audioDevice is not null)
+        get => _volume * 100;
+        set
         {
-            try
+            _volume = Math.Clamp(value, 0, 100) / 100;
+            ApplyGains();
+        }
+    }
+
+    public bool Muted
+    {
+        get => _muted;
+        set
+        {
+            _muted = value;
+            foreach (var voice in Voices())
             {
-                player.AudioDevice = _audioDevice;
-            }
-            catch (Exception)
-            {
-                // The device went away between the menu and the skip: system default.
+                voice.Muted = value;
             }
         }
+    }
 
-        player.Volume = Math.Clamp(volume, 0, 100) / 100.0;
-        player.IsMuted = muted;
-        player.MediaEnded += OnMediaEnded;
-        player.MediaFailed += OnMediaFailed;
-        player.CurrentStateChanged += OnCurrentStateChanged;
-        return player;
+    /// <summary>Bring loud masters down to YouTube's loudness target.</summary>
+    public bool NormalizesVolume
+    {
+        get => _normalizes;
+        set
+        {
+            _normalizes = value;
+            ApplyGains();
+        }
+    }
+
+    public bool Crossfades
+    {
+        get => _crossfades;
+        set
+        {
+            _crossfades = value;
+            _crossfadeRaised = false;
+        }
+    }
+
+    /// <summary>How long songs overlap, in seconds.</summary>
+    public double CrossfadeSeconds
+    {
+        get => _crossfadeSeconds;
+        set
+        {
+            _crossfadeSeconds = Math.Clamp(value, 1, 12);
+            _crossfadeRaised = false;
+        }
     }
 
     /// <summary>Play through a chosen device, now and for every song after it.
     /// Null is the system default (and follows a headset being plugged in).</summary>
     public void SetAudioDevice(DeviceInformation? device)
     {
-        _audioDevice = device;
-        if (_player is not { } player)
+        _device = device;
+        foreach (var voice in Voices())
         {
-            return;
-        }
-
-        try
-        {
-            player.AudioDevice = device;
-        }
-        catch (Exception)
-        {
-            // Keep playing through the old device rather than go silent.
+            voice.SetAudioDevice(device);
         }
     }
 
-    /// <summary>The device in use, or null for the system default.</summary>
-    public DeviceInformation? AudioDevice => _audioDevice;
+    // MARK: loading
 
-    public MediaPlayerState State => _player is { } player ? player.CurrentState : MediaPlayerState.Closed;
-
-    public double PositionSeconds =>
-        _player is { } player && player.CurrentState is not MediaPlayerState.Closed
-            ? player.PlaybackSession.Position.TotalSeconds
-            : 0;
-
-    public double Volume
+    /// <summary>Make <paramref name="song"/> the main song, starting at <paramref name="startAtSeconds"/>.
+    /// With <paramref name="fadeIn"/> above zero the song that was playing fades out over it on
+    /// the side while this one fades in; otherwise it stops at once.</summary>
+    public void Load(ResolvedStream stream, Song song, Guid occurrence, double startAtSeconds = 0, double fadeIn = 0)
     {
-        get => _player is { } player ? player.Volume * 100 : 100;
-        set
+        DiscardStandby();
+        Retire(fadeIn);
+        _main = NewVoice(stream, song, occurrence, startAtSeconds);
+        StartFadeIn(fadeIn);
+        _main.Open(App.AudioStore);
+        if (_playing)
         {
-            if (_player is { } player)
-            {
-                player.Volume = Math.Clamp(value, 0, 100) / 100.0;
-            }
+            _main.Play();
         }
     }
 
-    public bool Muted
+    /// <summary>The song playing leaves ahead of the next one's load: fading out over
+    /// <paramref name="fade"/> seconds on the side, or silenced at once.</summary>
+    public void Leave(double fade)
     {
-        get => _player is { } player && player.IsMuted;
-        set
-        {
-            if (_player is { } player)
-            {
-                player.IsMuted = value;
-            }
-        }
+        DiscardStandby();
+        Retire(fade);
     }
 
-    /// <summary>Point the player at a fresh track. A fresh player per track:
-    /// swapping Source on a live MediaPlayer surfaces the old source's MediaEnded, which
-    /// the queue would read as a real track end.
-    ///
-    /// <paramref name="startAtSeconds"/> is where the song starts: a song that was
-    /// resumed after a broken stream continues where it stopped, not at its first
-    /// second. The source attaches a moment later, so the position waits for it.
-    ///
-    /// The bytes ride our own transport (Koda.Core's CachingLoader): every byte reaches the
-    /// player through our own ranged HttpClient with the per-client user agent, while the
-    /// store keeps them on disk for the next play. A stream without a content length - never
-    /// a resolved AAC - falls back to the direct URL.</summary>
-    public void Load(ResolvedStream resolved, Song? song, double startAtSeconds = 0)
+    /// <summary>Load the next song paused, to be switched to when the current one ends.</summary>
+    public void Preload(ResolvedStream stream, Song song, Guid occurrence)
     {
-        if (_player is null)
-        {
-            return;
-        }
-
-
-        var wasMuted = Muted;
-        var lastVolume = Volume;
-
-        var old = _player;
-        old?.MediaEnded -= OnMediaEnded;
-        old?.MediaFailed -= OnMediaFailed;
-        old?.CurrentStateChanged -= OnCurrentStateChanged;
-        if (old is not null)
-        {
-            old.Source = null;
-            old.Dispose();
-        }
-        _source?.Dispose();
-        _source = null;
-        _loader?.Dispose();
-        _loader = null;
-
-        _player = NewPlayer(lastVolume, wasMuted);
-
-        var generation = ++_generation;
-        _wantsPlay = false;
-        _pendingPosition = Math.Max(0, startAtSeconds);
-        if (resolved.Url.IsFile)
-        {
-            // A song held whole on disk: the same frames, read from the file.
-            _ = OpenFileFramesAsync(resolved.Url.LocalPath, generation);
-        }
-        else if (Koda.Core.Playback.CachingLoader.Create(resolved, song, App.AudioStore) is { } loader)
-        {
-            _loader = loader;
-            _ = OpenFramesAsync(loader, resolved.ContentLength!.Value, generation);
-        }
-        else
-        {
-            // The Swift nil-loader branch: hand over the plain URL and let the
-            // failure/reload path above answer for it if the fetch dies.
-            Attach(MediaSource.CreateFromUri(resolved.Url), generation);
-        }
+        DiscardStandby();
+        _standby = NewVoice(stream, song, occurrence, 0);
+        _standby.Gain = 0;
+        _standby.Open(App.AudioStore);
     }
 
-    /// <summary>
-    /// YouTube's audio is fragmented MP4 (DASH), which Media Foundation's MP4 source
-    /// opens and then ends at once; the frames are fed to it through a MediaStreamSource
-    /// instead (see Fmp4Audio). The container's head is read first, so the source is
-    /// attached a moment after Load returns; a Play asked for meanwhile is kept.
-    /// [verified October 2026: file URI and stream both ended at 0 s; frames play and seek]
-    /// </summary>
-    private async Task OpenFramesAsync(Koda.Core.Playback.CachingLoader loader, long length, int generation)
+    public void DiscardStandby()
     {
-        try
-        {
-            async Task<byte[]> Read(long offset, int count, CancellationToken cancellation)
-            {
-                var buffer = new byte[Math.Max(0, Math.Min(count, length - offset))];
-                var copied = await loader.ReadAsync(offset, buffer, cancellation).ConfigureAwait(false);
-                return copied == buffer.Length ? buffer : buffer[..(int)copied];
-            }
-
-            var streamSource = await Fmp4StreamSource.CreateAsync(Read, length, CancellationToken.None).ConfigureAwait(false);
-            Attach(MediaSource.CreateFromMediaStreamSource(streamSource), generation);
-        }
-        catch (Exception)
-        {
-            if (generation != _generation)
-            {
-                return;
-            }
-
-            Failed?.Invoke("This song's audio could not be read.");
-        }
+        _standby?.Dispose();
+        _standby = null;
     }
 
-    private async Task OpenFileFramesAsync(string path, int generation)
+    /// <summary>The standby song becomes the main one and plays, the old song fading out and
+    /// the new one in over <paramref name="fade"/> seconds (none: straight on). False when
+    /// nothing was waiting.</summary>
+    public bool SwitchToStandby(double fade)
     {
-        try
+        if (_standby is not { } next)
         {
-            var file = new System.IO.FileStream(path, System.IO.FileMode.Open, System.IO.FileAccess.Read,
-                System.IO.FileShare.ReadWrite | System.IO.FileShare.Delete);
-            var gate = new SemaphoreSlim(1, 1);
-            async Task<byte[]> Read(long offset, int count, CancellationToken cancellation)
-            {
-                await gate.WaitAsync(cancellation).ConfigureAwait(false);
-                try
-                {
-                    var buffer = new byte[Math.Max(0, Math.Min(count, file.Length - offset))];
-                    file.Position = offset;
-                    var read = 0;
-                    while (read < buffer.Length)
-                    {
-                        var n = await file.ReadAsync(buffer.AsMemory(read), cancellation).ConfigureAwait(false);
-                        if (n == 0) break;
-                        read += n;
-                    }
-
-                    return read == buffer.Length ? buffer : buffer[..read];
-                }
-                finally
-                {
-                    gate.Release();
-                }
-            }
-
-            var streamSource = await Fmp4StreamSource.CreateAsync(Read, file.Length, CancellationToken.None).ConfigureAwait(false);
-            streamSource.Closed += (_, _) => file.Dispose();
-            Attach(MediaSource.CreateFromMediaStreamSource(streamSource), generation);
+            return false;
         }
-        catch (Exception)
-        {
-            if (generation != _generation)
-            {
-                return;
-            }
 
-            Failed?.Invoke("This song's saved audio could not be read.");
-        }
+        _standby = null;
+        Retire(fade);
+        _main = next;
+        StartFadeIn(fade);
+        _playing = true;
+        next.Play();
+        EnsureClock();
+        return true;
     }
 
-    /// <summary>Give the player its source, unless another track was loaded meanwhile.</summary>
-    private void Attach(MediaSource source, int generation)
-    {
-        lock (_attach)
-        {
-            if (generation != _generation || _player is not { } player)
-            {
-                source.Dispose();
-                return;
-            }
-
-            player.Source = source;
-            _source = source;
-            if (_wantsPlay)
-            {
-                player.Play();
-            }
-        }
-    }
+    // MARK: transport
 
     public void Play()
     {
-        lock (_attach)
-        {
-            _wantsPlay = true;
-            if (_source is not null)
-            {
-                _player?.Play();
-            }
-        }
+        _playing = true;
+        _main?.Play();
+        EnsureClock();
     }
 
     public void Pause()
     {
-        lock (_attach)
-        {
-            _wantsPlay = false;
-            _player?.Pause();
-        }
+        _playing = false;
+        _main?.Pause();
+        // A pause in the middle of a crossfade ends it: the old song is let go, the new one
+        // is at its full level for when play is pressed again.
+        FinishTail();
+        CancelFadeIn();
     }
 
     public void Seek(double seconds)
     {
-        var position = Math.Max(0, seconds);
-        _pendingPosition = position;
-        if (_player is not { } player || _source is null)
+        _main?.Seek(seconds);
+        _lastPosition = -1;
+    }
+
+    /// <summary>Silence every voice and let them go.</summary>
+    public void Stop()
+    {
+        _playing = false;
+        DiscardStandby();
+        FinishTail();
+        _main?.Dispose();
+        _main = null;
+        CancelFadeIn();
+        _clock?.Stop();
+    }
+
+    // MARK: internals
+
+    private double Lead => (_crossfades ? _crossfadeSeconds : 0) + PreloadLeadSeconds;
+
+    private Voice NewVoice(ResolvedStream stream, Song song, Guid occurrence, double startAt)
+    {
+        var voice = new Voice(stream, song, occurrence, _device, startAt) { Muted = _muted };
+        voice.Ended += v => OnUi(v, () => Ended?.Invoke());
+        voice.Failed += (v, reason) =>
         {
-            // The source is not attached yet: the position waits for it, so a seek
-            // during the loading window is not lost.
+            _dispatch?.TryEnqueue(() =>
+            {
+                if (v == _main)
+                {
+                    Failed?.Invoke(reason);
+                }
+                else if (v == _standby)
+                {
+                    // The next song failed to load ahead: it is loaded again when it is reached.
+                    DiscardStandby();
+                }
+            });
+        };
+        voice.StateReached += (v, state) => OnUi(v, () =>
+        {
+            if (state == MediaPlayerState.Playing)
+            {
+                EnsureClock();
+            }
+
+            StateReached?.Invoke(state);
+        });
+        _lastPosition = -1;
+        _crossfadeRaised = false;
+        _nearEndRaised = false;
+        return voice;
+    }
+
+    /// <summary>Run <paramref name="action"/> on the UI thread if <paramref name="voice"/> is still main then.</summary>
+    private void OnUi(Voice voice, Action action) =>
+        _dispatch?.TryEnqueue(() =>
+        {
+            if (voice == _main)
+            {
+                action();
+            }
+        });
+
+    /// <summary>Let the main voice go: fading its song out over <paramref name="fade"/> seconds when
+    /// it is sounding, otherwise silenced at once.</summary>
+    private void Retire(double fade)
+    {
+        // Nothing playing to let go: a song already fading out (a skip's, before the next song
+        // loaded) keeps fading rather than being cut off by the load.
+        if (_main is not { } old)
+        {
             return;
         }
 
-        ApplyPosition(player, position);
-    }
-
-    /// <summary>Move the playhead. The position stays pending when the session refuses it.</summary>
-    private void ApplyPosition(MediaPlayer player, double seconds)
-    {
-        try
+        FinishTail();
+        _main = null;
+        if (fade <= 0 || !old.IsSounding)
         {
-            player.PlaybackSession.Position = TimeSpan.FromSeconds(seconds);
-            _pendingPosition = 0;
-        }
-        catch (Exception)
-        {
-            // Not ready yet; the position waits and is applied when the media opens.
-        }
-    }
-
-    public void Stop()
-    {
-        _generation++;
-        _wantsPlay = false;
-        if (_player is { } player)
-        {
-            player.Source = null;
+            old.Dispose();
+            return;
         }
 
-        _source?.Dispose();
-        _source = null;
-        _loader?.Dispose();
-        _loader = null;
+        _tail = old;
+        _tailFrom = MainGain(old);
+        _tailStart = Now;
+        _tailLength = fade;
+        EnsureClock();
     }
 
-    private void OnMediaEnded(MediaPlayer sender, object args)
+    private void FinishTail()
     {
-        Ended?.Invoke();
+        _tail?.Dispose();
+        _tail = null;
     }
 
-    private void OnMediaFailed(MediaPlayer sender, MediaPlayerFailedEventArgs args)
+    private void StartFadeIn(double fade)
     {
-        var reason = string.IsNullOrWhiteSpace(args.ErrorMessage)
-            ? $"media error 0x{args.ExtendedErrorCode.HResult:x8}"
-            : args.ErrorMessage;
-        Failed?.Invoke(reason);
-    }
-
-    private void OnCurrentStateChanged(MediaPlayer sender, object args)
-    {
-        // A position asked for before the source attached is applied now that the
-        // media is there: this is what makes a resumed song continue where it stopped.
-        if (_pendingPosition > 0 && sender.CurrentState is MediaPlayerState.Playing or MediaPlayerState.Buffering)
+        if (fade <= 0)
         {
-            ApplyPosition(sender, _pendingPosition);
+            CancelFadeIn();
+            return;
         }
 
-        StateReached?.Invoke(sender.CurrentState);
+        _fadeGain = 0;
+        _fadeInStart = Now;
+        _fadeInLength = fade;
+        ApplyGains();
+        EnsureClock();
+    }
+
+    /// <summary>Back to full level at once.</summary>
+    private void CancelFadeIn()
+    {
+        _fadeInLength = 0;
+        _fadeGain = 1;
+        ApplyGains();
+    }
+
+    private double Now => _time.Elapsed.TotalSeconds;
+
+    /// <summary>The levelling a song gets: loud masters come down to -14 LUFS; quiet ones are
+    /// left alone rather than boosted, and nothing drops below 40%.</summary>
+    private double Leveling(Voice voice) =>
+        _normalizes && voice.Stream.LoudnessDb is { } db && db > 0
+            ? Math.Max(0.4, Math.Pow(10, -db / 20))
+            : 1;
+
+    private double MainGain(Voice voice) => _volume * Leveling(voice) * _fadeGain;
+
+    private void ApplyGains()
+    {
+        if (_main is { } main)
+        {
+            main.Gain = MainGain(main);
+        }
+    }
+
+    private System.Collections.Generic.IEnumerable<Voice> Voices()
+    {
+        if (_main is not null) yield return _main;
+        if (_standby is not null) yield return _standby;
+        if (_tail is not null) yield return _tail;
+    }
+
+    private static double? Remaining(Voice voice)
+    {
+        var duration = voice.Stream.Duration ?? voice.Song.Duration ?? 0;
+        return duration > 0 ? duration - voice.PositionSeconds : null;
+    }
+
+    private void EnsureClock()
+    {
+        if (_clock is not { } clock)
+        {
+            return;
+        }
+
+        if (_fadeInLength > 0 || _tail is not null)
+        {
+            clock.Interval = TimeSpan.FromMilliseconds(33);
+        }
+
+        if (!clock.IsRunning)
+        {
+            clock.Start();
+        }
+    }
+
+    /// <summary>About thirty times a second while anything is moving: the fades, and the watch
+    /// for the end of the main song.</summary>
+    private void Tick()
+    {
+        var now = Now;
+        if (_fadeInLength > 0)
+        {
+            var progress = Math.Min(1, (now - _fadeInStart) / _fadeInLength);
+            _fadeGain = Math.Sin(progress * Math.PI / 2);
+            ApplyGains();
+            if (progress >= 1)
+            {
+                _fadeInLength = 0;
+            }
+        }
+
+        if (_tail is { } tail)
+        {
+            var progress = Math.Min(1, (now - _tailStart) / _tailLength);
+            tail.Gain = _tailFrom * Math.Cos(progress * Math.PI / 2);
+            if (progress >= 1)
+            {
+                FinishTail();
+            }
+        }
+
+        WatchEnd();
+
+        var fading = _fadeInLength > 0 || _tail is not null;
+        if (!_playing && !fading)
+        {
+            _clock?.Stop();
+        }
+        else if (_clock is { } clock)
+        {
+            // Smooth while a fade runs; a few looks a second are enough to watch for the end.
+            clock.Interval = TimeSpan.FromMilliseconds(fading ? 33 : 150);
+        }
+    }
+
+    private void WatchEnd()
+    {
+        if (_main is not { } main || !_playing || Remaining(main) is not { } left)
+        {
+            return;
+        }
+
+        var duration = main.Stream.Duration ?? main.Song.Duration ?? 0;
+        var position = duration - left;
+
+        if (left <= Lead)
+        {
+            if (!_nearEndRaised)
+            {
+                _nearEndRaised = true;
+                NearEnd?.Invoke();
+            }
+        }
+        else if (left > Lead + 5)
+        {
+            // Seeked back from the end: the next song is loaded again when the end comes round.
+            _nearEndRaised = false;
+        }
+
+        // A short song keeps most of itself unfaded.
+        if (_crossfades && duration > _crossfadeSeconds * 2 + 10 && main.IsSounding)
+        {
+            var boundary = duration - _crossfadeSeconds;
+            if (position < boundary)
+            {
+                _crossfadeRaised = false;
+            }
+            // Only playback running across the moment starts the fade; a seek that lands past it
+            // lets the song end, and the next one goes straight on.
+            else if (!_crossfadeRaised && _lastPosition >= 0 && _lastPosition < boundary && position - _lastPosition < 1.5)
+            {
+                _crossfadeRaised = true;
+                CrossfadeDue?.Invoke();
+            }
+        }
+
+        _lastPosition = main.IsSounding ? position : -1;
     }
 
     public void Dispose()
     {
-        if (_player is null)
-        {
-            return;
-        }
-
-        _player.MediaEnded -= OnMediaEnded;
-        _player.MediaFailed -= OnMediaFailed;
-        _player.CurrentStateChanged -= OnCurrentStateChanged;
-        _player.Source = null;
-        _player.Dispose();
-        _player = null;
-        _source?.Dispose();
-        _source = null;
-        _loader?.Dispose();
-        _loader = null;
+        Stop();
     }
 }
