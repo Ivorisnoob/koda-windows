@@ -128,6 +128,41 @@ public sealed class PlaybackService
         _positionTimer.Start();
 
         RestoreQueue();
+        _ = RestoreAudioDeviceAsync();
+    }
+
+    /// <summary>The output device the listener chose; null is the system default.</summary>
+    public string? AudioDeviceId => Koda.Core.Settings.Current.AudioDeviceId;
+
+    /// <summary>Play through a device from now on, and remember it. Choosing the
+    /// system default clears the saved id, so a new headset is followed.</summary>
+    public async Task SetAudioDeviceAsync(string? id)
+    {
+        Koda.Core.Settings.Current.Update(s => s.AudioDeviceId = id);
+        var device = await Interop.AudioOutputs.FindAsync(id);
+        _player.SetAudioDevice(device);
+        if (!string.IsNullOrEmpty(id) && device is null)
+        {
+            Koda.Core.Settings.Current.Update(s => s.AudioDeviceId = null);
+            StatusRaised?.Invoke(StatusTone.Pacing,
+                "That audio device isn't connected - playing through the system default.");
+        }
+    }
+
+    private async Task RestoreAudioDeviceAsync()
+    {
+        var id = Koda.Core.Settings.Current.AudioDeviceId;
+        if (string.IsNullOrEmpty(id))
+        {
+            return;
+        }
+
+        var device = await Interop.AudioOutputs.FindAsync(id);
+        _player.SetAudioDevice(device);
+        if (device is null)
+        {
+            Koda.Core.Settings.Current.Update(s => s.AudioDeviceId = null);
+        }
     }
 
     // MARK: starting things
@@ -284,6 +319,29 @@ public sealed class PlaybackService
     {
         if (_loaded) _player.Seek(Math.Max(0, seconds));
         else _resumeAt = Math.Max(0, seconds);
+    }
+
+    /// <summary>
+    /// Jump within the playing song, by the listener's interval. A jump past the end
+    /// stops at the end rather than leaving the track: the skip buttons move inside the
+    /// song, next moves between songs, as on the Mac.
+    /// </summary>
+    public void Skip(double seconds)
+    {
+        if (CurrentSong is null)
+        {
+            return;
+        }
+
+        var target = PositionSeconds + seconds;
+        var duration = DurationSeconds;
+        if (duration > 0)
+        {
+            target = Math.Min(target, Math.Max(0, duration - 0.5));
+        }
+
+        SeekSeconds(Math.Max(0, target));
+        PositionTick?.Invoke();
     }
 
     public void SetVolumePercent(double percent) => _player.Volume = percent;
@@ -598,6 +656,10 @@ public sealed class PlaybackService
             // A damaged queue file starts an empty queue.
         }
     }
+
+    /// <summary>Write the queue and the place without stopping anything: the end of a
+    /// Windows session is not the listener asking Koda to quit.</summary>
+    public void SaveState() => SaveQueue();
 
     /// <summary>Terminal shutdown: keep the queue and place, stop audio, hand back the SMTC card.</summary>
     public void Shutdown()

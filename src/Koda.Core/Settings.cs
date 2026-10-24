@@ -28,6 +28,23 @@ public enum CacheLimit : long
     Huge = 5_000_000_000,
 }
 
+/// <summary>How the saved collections are ordered.</summary>
+public enum LibrarySort
+{
+    Recent,
+    Title,
+    Artist,
+}
+
+/// <summary>How Liked Songs is ordered.</summary>
+public enum SongSort
+{
+    Recent,
+    Title,
+    Artist,
+    MostPlayed,
+}
+
 /// <summary>
 /// What the listener has chosen, each saved the moment it changes.
 ///
@@ -53,6 +70,8 @@ public sealed class Settings
             new JsonStringEnumConverter<LyricsSize>(),
             new JsonStringEnumConverter<CacheLimit>(),
             new JsonStringEnumConverter<LyricsSource>(),
+            new JsonStringEnumConverter<LibrarySort>(),
+            new JsonStringEnumConverter<SongSort>(),
         },
     };
 
@@ -101,11 +120,51 @@ public sealed class Settings
     /// <summary>When the queue ends, the radio of the last song keeps it going.</summary>
     public bool Autoplay { get; set; } = true;
 
+    /// <summary>Buttons beside previous and next jump back or ahead within the song.</summary>
+    public bool ShowsSkipButtons { get; set; } = true;
+
+    /// <summary>How far those buttons jump. Only the four the settings offer are kept;
+    /// anything else reads as ten seconds, the Mac's default.</summary>
+    public int SkipSeconds
+    {
+        get => _skipSeconds;
+        set => _skipSeconds = SkipIntervals.Contains(value) ? value : 10;
+    }
+
+    public static readonly int[] SkipIntervals = [5, 10, 15, 30];
+
+    private int _skipSeconds = 10;
+
     /// <summary>Closing the window keeps Koda in the notification area, still playing.</summary>
     public bool CloseToTray { get; set; } = true;
 
     /// <summary>Koda's own volume, under the system's.</summary>
     public double Volume { get; set; } = 100;
+
+    /// <summary>How saved albums, playlists and artists are ordered in the library.</summary>
+    public LibrarySort LibrarySort { get; set; } = LibrarySort.Recent;
+
+    /// <summary>How Liked Songs is ordered.</summary>
+    public SongSort SongSort { get; set; } = SongSort.Recent;
+
+    /// <summary>Koda starts with Windows, so the music is a click away after sign-in.</summary>
+    public bool OpenAtLogin { get; set; }
+
+    /// <summary>The last window position and size, in physical pixels: where the listener
+    /// left Koda. Zero width or height means no placement has been saved yet.</summary>
+    public int WindowLeft { get; set; }
+
+    public int WindowTop { get; set; }
+
+    public int WindowWidth { get; set; }
+
+    public int WindowHeight { get; set; }
+
+    /// <summary>The window was maximised when it was last closed.</summary>
+    public bool WindowMaximized { get; set; }
+
+    /// <summary>The audio render device Koda plays through; null is the system default.</summary>
+    public string? AudioDeviceId { get; set; }
 
     /// <summary>Raised when a setting changes, so what listens to it can follow.</summary>
     public event Action<Settings>? Changed;

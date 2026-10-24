@@ -19,6 +19,12 @@ public sealed record SongStats(Song Song, int Plays, double Seconds, DateTimeOff
     public static SongStats New(Song song, DateTimeOffset at) => new(song, 0, 0, at, at);
 }
 
+/// <summary>One play, with when it happened: the dated history behind the History page.</summary>
+public sealed record PlayEvent(Guid Id, Song Song, DateTimeOffset Date)
+{
+    public static PlayEvent New(Song song, DateTimeOffset at) => new(Guid.NewGuid(), song, at);
+}
+
 /// <summary>What an Android import added, to tell the listener.</summary>
 public sealed record AndroidImportSummary(int LikedSongs = 0, int Plays = 0, int Playlists = 0, int Saved = 0, int Searches = 0)
 {
@@ -39,21 +45,27 @@ public sealed class Library
 {
     private const int RecentLimit = 200;
     private const int SearchLimit = 20;
+    private const int HistoryLimit = 3000;
     /// <summary>The iOS backup format name, kept so one backup restores on either platform.</summary>
     private const string BackupFormat = "koda-ios-library";
 
     private readonly object _lock = new();
     private readonly string? _file;
+    private readonly string? _historyFile;
+    private readonly List<PlayEvent> _history = [];
     private Snapshot _s = new();
     /// <summary>Listening time arrives every few seconds; it is written with the next change or <see cref="Flush"/>.</summary>
     private bool _hasUnsavedListening;
+    private int _historySaveVersion;
 
     public event Action? Changed;
 
     public Library(string? directory)
     {
         _file = directory is null ? null : Path.Combine(directory, "library.json");
+        _historyFile = directory is null ? null : Path.Combine(directory, "history.json");
         Load();
+        LoadHistory();
     }
 
     // MARK: Reading
@@ -72,6 +84,8 @@ public sealed class Library
     /// <summary>Seconds listened per day, keyed yyyy-MM-dd in the device's time zone.</summary>
     public IReadOnlyDictionary<string, double> DailyListening { get { lock (_lock) return new Dictionary<string, double>(_s.DailyListening); } }
     public IReadOnlyDictionary<string, double> LyricsOffsets { get { lock (_lock) return new Dictionary<string, double>(_s.LyricsOffsets); } }
+    /// <summary>Every play, newest first, under the day it happened.</summary>
+    public PlayEvent[] History { get { lock (_lock) return [.. _history]; } }
 
     // MARK: Songs
 
@@ -101,6 +115,17 @@ public sealed class Library
             var stats = s.SongStats.TryGetValue(song.Id, out var held) ? held : global::Koda.Core.SongStats.New(song, date);
             s.SongStats[song.Id] = stats with { Song = song, Plays = stats.Plays + 1, LastPlayed = date };
         });
+
+        lock (_lock)
+        {
+            _history.Insert(0, PlayEvent.New(song, date));
+            if (_history.Count > HistoryLimit)
+            {
+                _history.RemoveRange(HistoryLimit, _history.Count - HistoryLimit);
+            }
+        }
+
+        ScheduleHistorySave();
     }
 
     /// <summary>Credit <paramref name="seconds"/> of listening to <paramref name="song"/> on the day of <paramref name="at"/>.</summary>
@@ -124,11 +149,50 @@ public sealed class Library
     public void Flush()
     {
         bool dirty;
-        lock (_lock) dirty = _hasUnsavedListening;
-        if (dirty) Edit(_ => { });
+        lock (_lock) dirty = _hasUnsavedListening || _history.Count > 0;
+        if (dirty)
+        {
+            Edit(_ => { });
+            WriteHistoryNow();
+        }
     }
 
-    public void ClearHistory() => Edit(s => s.Recent.Clear());
+    public void ClearHistory()
+    {
+        Edit(s => s.Recent.Clear());
+        lock (_lock)
+        {
+            _history.Clear();
+        }
+
+        ScheduleHistorySave();
+    }
+
+    /// <summary>Forget one play. A song with no play left in the history leaves Recently Played too.</summary>
+    public void RemoveFromHistory(Guid id)
+    {
+        string? songId;
+        bool remains;
+        lock (_lock)
+        {
+            var index = _history.FindIndex(e => e.Id == id);
+            if (index < 0)
+            {
+                return;
+            }
+
+            songId = _history[index].Song.Id;
+            _history.RemoveAt(index);
+            remains = _history.Exists(e => e.Song.Id == songId);
+        }
+
+        if (!remains)
+        {
+            Edit(s => s.Recent.RemoveAll(song => song.Id == songId));
+        }
+
+        ScheduleHistorySave();
+    }
 
     /// <summary>Forget play counts and listening time; history and likes stay.</summary>
     public void ClearStats() => Edit(s =>
@@ -313,6 +377,8 @@ public sealed class Library
         public int Version { get; set; }
         public DateTimeOffset Exported { get; set; }
         public Snapshot? Library { get; set; }
+        /// <summary>Version 2 adds the dated plays; version 1 files read from Recent and the stats.</summary>
+        public List<PlayEvent>? History { get; set; }
     }
 
     internal static readonly JsonSerializerOptions Options = new()
@@ -335,6 +401,84 @@ public sealed class Library
         catch (Exception)
         {
             // A damaged file starts an empty library rather than breaking the app.
+        }
+    }
+
+    /// <summary>The dated history lives beside the library, as it does on the Mac.</summary>
+    private void LoadHistory()
+    {
+        if (_historyFile is null) return;
+        try
+        {
+            if (!File.Exists(_historyFile)) return;
+            if (JsonSerializer.Deserialize<List<PlayEvent?>>(File.ReadAllText(_historyFile), Options) is { } events)
+            {
+                _history.AddRange(events.OfType<PlayEvent>().OrderByDescending(e => e.Date));
+                if (_history.Count > HistoryLimit)
+                {
+                    _history.RemoveRange(HistoryLimit, _history.Count - HistoryLimit);
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // A damaged history costs the page, never the library.
+        }
+    }
+
+    /// <summary>Write the history a moment later, once, for the newest state.</summary>
+    private void ScheduleHistorySave()
+    {
+        if (_historyFile is null) return;
+        int version;
+        lock (_lock) version = ++_historySaveVersion;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(500).ConfigureAwait(false);
+                string? text;
+                lock (_lock)
+                {
+                    if (version != _historySaveVersion) return;
+                    text = JsonSerializer.Serialize(_history, Options);
+                }
+
+                WriteHistory(text);
+            }
+            catch (Exception)
+            {
+                // The previous file stays; the next play tries again.
+            }
+        });
+    }
+
+    private void WriteHistoryNow()
+    {
+        if (_historyFile is null) return;
+        string text;
+        lock (_lock)
+        {
+            _historySaveVersion++;
+            text = JsonSerializer.Serialize(_history, Options);
+        }
+
+        WriteHistory(text);
+    }
+
+    private void WriteHistory(string text)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(_historyFile!)!);
+            var temp = _historyFile + ".tmp";
+            File.WriteAllText(temp, text);
+            File.Move(temp, _historyFile!, overwrite: true);
+        }
+        catch (Exception)
+        {
+            // The previous file stays.
         }
     }
 
@@ -413,7 +557,14 @@ public sealed class Library
         {
             var options = new JsonSerializerOptions(Options) { WriteIndented = true };
             return JsonSerializer.SerializeToUtf8Bytes(
-                new Backup { Format = BackupFormat, Version = 1, Exported = at ?? DateTimeOffset.Now, Library = _s }, options);
+                new Backup
+                {
+                    Format = BackupFormat,
+                    Version = 2,
+                    Exported = at ?? DateTimeOffset.Now,
+                    Library = _s,
+                    History = [.. _history],
+                }, options);
         }
     }
 
@@ -445,6 +596,23 @@ public sealed class Library
             s.LyricsOffsets = restored.LyricsOffsets;
             s.AndroidPlaysImportedThrough = restored.AndroidPlaysImportedThrough;
         });
+
+        // A version 1 backup has no dated history: the plays it knows of become one each,
+        // at their last play, exactly as the Mac restores them.
+        var history = backup.History is { Count: > 0 } dated
+            ? dated.Where(e => e.Song is not null).OrderByDescending(e => e.Date).Take(HistoryLimit).ToList()
+            : restored.Recent
+                .Where(song => restored.SongStats.ContainsKey(song.Id))
+                .Select(song => PlayEvent.New(song, restored.SongStats[song.Id].LastPlayed))
+                .OrderByDescending(e => e.Date)
+                .ToList();
+        lock (_lock)
+        {
+            _history.Clear();
+            _history.AddRange(history);
+        }
+
+        ScheduleHistorySave();
     }
 
     // MARK: Koda for Android
@@ -457,6 +625,7 @@ public sealed class Library
     public AndroidImportSummary ImportAndroid(AndroidBackup backup, TimeZoneInfo? zone = null)
     {
         var summary = new AndroidImportSummary();
+        var historyAdds = new List<PlayEvent>();
         Edit(s =>
         {
             var likedIds = s.Liked.Select(x => x.Id).ToHashSet();
@@ -498,6 +667,7 @@ public sealed class Library
                 };
                 var key = DayKey(play.Date, zone);
                 s.DailyListening[key] = s.DailyListening.GetValueOrDefault(key) + play.Seconds;
+                historyAdds.Add(PlayEvent.New(play.Song, play.Date));
             }
             if (fresh.Length > 0) s.AndroidPlaysImportedThrough = fresh[^1].Date;
 
@@ -518,6 +688,22 @@ public sealed class Library
 
             summary = new AndroidImportSummary(newLikes.Length, fresh.Length, playlists, saved, s.Searches.Count - before);
         });
+
+        if (historyAdds.Count > 0)
+        {
+            lock (_lock)
+            {
+                _history.AddRange(historyAdds);
+                _history.Sort((a, b) => b.Date.CompareTo(a.Date));
+                if (_history.Count > HistoryLimit)
+                {
+                    _history.RemoveRange(HistoryLimit, _history.Count - HistoryLimit);
+                }
+            }
+
+            ScheduleHistorySave();
+        }
+
         return summary;
     }
 

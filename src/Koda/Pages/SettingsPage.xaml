@@ -58,6 +58,49 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel>
+                                <TextBlock Text="Skip buttons" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                                <TextBlock
+                                    Text="Back and ahead buttons beside previous and next, in the player bar and Now Playing."
+                                    Style="{ThemeResource CaptionTextBlockStyle}"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch
+                                x:Name="SkipButtonsSwitch"
+                                Grid.Column="1"
+                                VerticalAlignment="Center"
+                                OffContent=" "
+                                OnContent=" "
+                                AutomationProperties.Name="Skip buttons"
+                                Toggled="OnSkipButtonsToggled" />
+                        </Grid>
+                        <Grid Style="{StaticResource SettingRow}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Skip by" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                                <TextBlock
+                                    Text="How far the skip buttons and Ctrl+Alt+Left or Right jump."
+                                    Style="{ThemeResource CaptionTextBlockStyle}"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ComboBox
+                                x:Name="SkipBox"
+                                Grid.Column="1"
+                                MinWidth="120"
+                                VerticalAlignment="Center"
+                                AutomationProperties.Name="Skip by"
+                                SelectionChanged="OnSkipChanged" />
+                        </Grid>
+                        <Grid Style="{StaticResource SettingRow}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
                                 <TextBlock Text="Close to the tray" Style="{ThemeResource BodyStrongTextBlockStyle}" />
                                 <TextBlock
                                     Text="Closing the window keeps Koda in the notification area, still playing."
@@ -72,6 +115,57 @@
                                 OffContent=" "
                                 OnContent=" "
                                 Toggled="OnCloseToTrayToggled" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- Windows -->
+            <StackPanel Spacing="8">
+                <TextBlock Text="Windows" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                <Border CornerRadius="12" Background="#0FFFFFFF" Padding="16,14">
+                    <StackPanel>
+                        <Grid Style="{StaticResource SettingRow}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Open at login" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                                <TextBlock
+                                    Text="Start Koda when you sign in to Windows."
+                                    Style="{ThemeResource CaptionTextBlockStyle}"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch
+                                x:Name="OpenAtLoginSwitch"
+                                Grid.Column="1"
+                                VerticalAlignment="Center"
+                                OffContent=" "
+                                OnContent=" "
+                                AutomationProperties.Name="Open at login"
+                                Toggled="OnOpenAtLoginToggled" />
+                        </Grid>
+                        <Grid Style="{StaticResource SettingRow}" Margin="0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Audio output" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                                <TextBlock
+                                    Text="Play through the system default, or choose a headset or speakers."
+                                    Style="{ThemeResource CaptionTextBlockStyle}"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                            <Button
+                                x:Name="OutputSettingsButton"
+                                Grid.Column="1"
+                                VerticalAlignment="Center"
+                                Content="Choose…"
+                                Click="OnChooseOutputClick" />
                         </Grid>
                     </StackPanel>
                 </Border>

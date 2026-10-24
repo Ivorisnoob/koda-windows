@@ -71,10 +71,38 @@ public partial class App : Application
         }
     }
 
+    /// <summary>A failure the shell caught and carried on from: the page, the file, the reason.</summary>
+    internal static void WriteError(string source, Exception error) => WriteCrash($"{source}\n{error}");
+
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // Shell integration that must exist before the first window: the Run entry
+        // follows the listener's setting, and koda:// links point at this build.
+        Koda.Interop.Startup.Sync();
+        Koda.Interop.ProtocolActivation.Register();
+
         Shell = new MainWindow();
         Shell.Activate();
         Koda.Helpers.ShellChrome.ApplyTheme();
+
+        // A cold koda:// launch carries its URL on this process's command line.
+        if (Koda.Interop.SingleInstance.StartupArguments.Count > 0)
+        {
+            Koda.Interop.ProtocolActivation.Handle(Shell, Koda.Interop.SingleInstance.StartupArguments);
+        }
+
+        // A second launch (taskbar, Start, Search, koda://) is redirected here by
+        // Program/SingleInstance: show the window the listener already has. The
+        // callback arrives on a pool thread, so everything UI happens on ours.
+        var dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        Koda.Interop.SingleInstance.SetHandler(() => dispatcher.TryEnqueue(() =>
+        {
+            Shell?.ShowFromTray();
+            var pending = Koda.Interop.SingleInstance.TakePendingArguments();
+            if (pending.Length > 0 && Shell is { } shell)
+            {
+                Koda.Interop.ProtocolActivation.Handle(shell, pending);
+            }
+        }));
     }
 }

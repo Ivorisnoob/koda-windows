@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     xmlns:helpers="using:Koda.Helpers"
+    xmlns:controls="using:Koda.Controls"
     Title="Koda">
 
     <Grid x:Name="Root">
@@ -65,30 +66,155 @@
         <muxc:NavigationView
             x:Name="Nav"
             Grid.Row="1"
-            PaneDisplayMode="LeftCompact"
-            CompactPaneLength="64"
+            PaneDisplayMode="Left"
+            OpenPaneLength="264"
+            CompactPaneLength="52"
             IsBackButtonVisible="Collapsed"
-            IsPaneToggleButtonVisible="False"
             IsSettingsVisible="True"
             IsTitleBarAutoPaddingEnabled="False"
-            SelectionChanged="OnNavSelectionChanged">
+            ItemInvoked="OnNavItemInvoked">
             <muxc:NavigationView.MenuItems>
                 <muxc:NavigationViewItem Content="Home" Tag="home" ToolTipService.ToolTip="Home">
                     <muxc:NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE80F;" />
                     </muxc:NavigationViewItem.Icon>
                 </muxc:NavigationViewItem>
-                <muxc:NavigationViewItem Content="Search" Tag="search" ToolTipService.ToolTip="Search">
+                <muxc:NavigationViewItem Content="Browse" Tag="browse" ToolTipService.ToolTip="Browse moods and genres">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8A9;" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
+                <muxc:NavigationViewItem x:Name="SearchResultsItem" Content="Search Results" Tag="search" Visibility="Collapsed" ToolTipService.ToolTip="Search results">
                     <muxc:NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE721;" />
                     </muxc:NavigationViewItem.Icon>
                 </muxc:NavigationViewItem>
-                <muxc:NavigationViewItem Content="Library" Tag="library" ToolTipService.ToolTip="Library">
+
+                <muxc:NavigationViewItemHeader Content="Library" />
+                <muxc:NavigationViewItem Content="Recently Played" Tag="recent" ToolTipService.ToolTip="Recently Played">
                     <muxc:NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE8F1;" />
+                        <FontIcon Glyph="&#xE823;" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
+                <muxc:NavigationViewItem Content="History" Tag="history" ToolTipService.ToolTip="Every play, by the day">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE81C;" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
+                <muxc:NavigationViewItem x:Name="LikedItem" Content="Liked Songs" Tag="liked" ToolTipService.ToolTip="Liked Songs">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xEB52;" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
+                <muxc:NavigationViewItem Content="Albums" Tag="albums" ToolTipService.ToolTip="Saved albums">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE93C;" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
+                <muxc:NavigationViewItem Content="Playlists" Tag="playlists" ToolTipService.ToolTip="Saved playlists">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8FD;" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
+                <muxc:NavigationViewItem Content="Artists" Tag="artists" ToolTipService.ToolTip="Followed artists">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE77B;" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
+                <muxc:NavigationViewItem x:Name="DownloadsItem" Content="Downloads" Tag="downloads" ToolTipService.ToolTip="Downloads">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE896;" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
+                <muxc:NavigationViewItem Content="Ready Offline" Tag="offline" ToolTipService.ToolTip="Songs kept on this PC">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE709;" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
+                <muxc:NavigationViewItem Content="Listening Stats" Tag="stats" ToolTipService.ToolTip="Listening Stats">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE9D9;" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
+
+                <muxc:NavigationViewItemHeader Content="Your playlists" />
+                <muxc:NavigationViewItem x:Name="NewPlaylistItem" Content="New Playlist" Tag="new-playlist" SelectsOnInvoked="False" ToolTipService.ToolTip="Make a new playlist">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE710;" />
                     </muxc:NavigationViewItem.Icon>
                 </muxc:NavigationViewItem>
             </muxc:NavigationView.MenuItems>
+
+            <muxc:NavigationView.FooterMenuItems>
+                <muxc:NavigationViewItem
+                    x:Name="UpNextItem"
+                    Tag="up-next"
+                    SelectsOnInvoked="False"
+                    Visibility="Collapsed"
+                    Padding="8,6"
+                    HorizontalContentAlignment="Stretch"
+                    AutomationProperties.Name="Up next">
+                    <Border Padding="8" CornerRadius="8" Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                        <StackPanel Spacing="6">
+                            <Grid>
+                                <TextBlock Text="Up next" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                                <HyperlinkButton Content="Show all" HorizontalAlignment="Right" Padding="0" FontSize="11" Click="OnShowQueueClick" />
+                            </Grid>
+                            <Button
+                                x:Name="UpNextButton"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="4"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                Click="OnUpNextClick"
+                                ToolTipService.ToolTip="Play the next song">
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="28" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Width="28" Height="28" CornerRadius="5" Background="{ThemeResource ControlFillColorDefaultBrush}">
+                                        <Grid>
+                                            <FontIcon Glyph="&#xE8D6;" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                            <Image x:Name="UpNextArt" helpers:Art.Pixels="28" Stretch="UniformToFill" />
+                                        </Grid>
+                                    </Border>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="0">
+                                        <TextBlock x:Name="UpNextTitle" Style="{ThemeResource CaptionTextBlockStyle}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                        <TextBlock x:Name="UpNextArtist" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                    </StackPanel>
+                                </Grid>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+                </muxc:NavigationViewItem>
+
+                <muxc:NavigationViewItem
+                    x:Name="GlanceItem"
+                    Tag="glance"
+                    SelectsOnInvoked="False"
+                    Padding="8,6"
+                    HorizontalContentAlignment="Stretch"
+                    ToolTipService.ToolTip="Listening Stats"
+                    AutomationProperties.Name="Listening today and streak">
+                    <Border Padding="8" CornerRadius="8" Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Width="28" Height="28" CornerRadius="7" Background="{ThemeResource AccentFillColorSecondaryBrush}">
+                                <FontIcon Glyph="&#xE7F6;" FontSize="13" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                            </Border>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="0">
+                                <TextBlock x:Name="GlanceListened" Style="{ThemeResource CaptionTextBlockStyle}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                <TextBlock x:Name="GlanceStreak" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </muxc:NavigationViewItem>
+            </muxc:NavigationView.FooterMenuItems>
 
             <Grid>
                 <Frame x:Name="ContentFrame" />
@@ -196,6 +322,19 @@
                         <FontIcon Glyph="&#xE892;" FontSize="16" />
                     </Button>
                     <Button
+                        x:Name="SkipBackButton"
+                        Width="36"
+                        Height="36"
+                        Padding="0"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        IsEnabled="False"
+                        Click="OnSkipBackClick"
+                        ToolTipService.ToolTip="Back 10 seconds"
+                        AutomationProperties.Name="Back 10 seconds">
+                        <controls:SkipIcon x:Name="SkipBackIcon" Direction="Back" Seconds="10" Width="18" Height="18" />
+                    </Button>
+                    <Button
                         x:Name="PlayPauseButton"
                         Width="40"
                         Height="40"
@@ -210,6 +349,19 @@
                             <FontIcon x:Name="PlayPauseIcon" Glyph="&#xF5B0;" FontSize="16" />
                             <ProgressRing x:Name="BarLoading" Width="20" Height="20" IsActive="False" Visibility="Collapsed" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
                         </Grid>
+                    </Button>
+                    <Button
+                        x:Name="SkipForwardButton"
+                        Width="36"
+                        Height="36"
+                        Padding="0"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        IsEnabled="False"
+                        Click="OnSkipForwardClick"
+                        ToolTipService.ToolTip="Ahead 10 seconds"
+                        AutomationProperties.Name="Ahead 10 seconds">
+                        <controls:SkipIcon x:Name="SkipForwardIcon" Direction="Forward" Seconds="10" Width="18" Height="18" />
                     </Button>
                     <Button
                         x:Name="NextButton"
@@ -260,6 +412,19 @@
 
             <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="4">
                 <Button
+                    x:Name="MiniButton"
+                    Width="36"
+                    Height="36"
+                    Padding="0"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    IsEnabled="False"
+                    Click="OnMiniClick"
+                    ToolTipService.ToolTip="Mini player"
+                    AutomationProperties.Name="Mini player">
+                    <FontIcon Glyph="&#xE9A6;" FontSize="16" />
+                </Button>
+                <Button
                     x:Name="QueueButton"
                     Width="36"
                     Height="36"
@@ -283,6 +448,18 @@
                     ToolTipService.ToolTip="Mute"
                     AutomationProperties.Name="Mute">
                     <FontIcon x:Name="MuteIcon" Glyph="&#xE767;" FontSize="16" />
+                </Button>
+                <Button
+                    x:Name="OutputButton"
+                    Width="36"
+                    Height="36"
+                    Padding="0"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Click="OnOutputClick"
+                    ToolTipService.ToolTip="Audio output"
+                    AutomationProperties.Name="Audio output">
+                    <FontIcon Glyph="&#xE7F5;" FontSize="16" />
                 </Button>
                 <Slider
                     x:Name="VolumeSlider"

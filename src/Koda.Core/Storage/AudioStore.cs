@@ -70,6 +70,9 @@ public sealed class AudioStore
     private long _cacheLimitBytes;
     private int _saveVersion;
 
+    /// <summary>Raised when downloads or the offline set change, so lists can redraw.</summary>
+    public event Action? Changed;
+
     public AudioStore(string directory, long cacheLimit = 1_000_000_000)
     {
         _directory = directory;
@@ -350,6 +353,7 @@ public sealed class AudioStore
         if (completed)
         {
             Evict();
+            Changed?.Invoke();
         }
     }
 
@@ -420,6 +424,7 @@ public sealed class AudioStore
         }
 
         ScheduleSave();
+        Changed?.Invoke();
     }
 
     /// <summary>Remove downloads and their files, unless one is playing: that one stays as cache.</summary>
@@ -446,6 +451,7 @@ public sealed class AudioStore
         }
 
         ScheduleSave();
+        Changed?.Invoke();
     }
 
     public void RemoveAllDownloads() => RemoveDownloads(Downloads.Select(e => e.VideoId).ToArray());
@@ -465,6 +471,7 @@ public sealed class AudioStore
         }
 
         ScheduleSave();
+        Changed?.Invoke();
     }
 
     // MARK: Housekeeping

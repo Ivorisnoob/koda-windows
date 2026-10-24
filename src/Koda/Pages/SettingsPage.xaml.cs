@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Reflection;
 using Koda.Core;
 using Koda.Helpers;
+using Koda.Interop;
 using Koda.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -41,7 +42,18 @@ public sealed partial class SettingsPage : Page
         _loaded = false;
 
         AutoplaySwitch.IsOn = settings.Autoplay;
+        SkipButtonsSwitch.IsOn = settings.ShowsSkipButtons;
+
+        SkipBox.Items.Clear();
+        foreach (var seconds in Settings.SkipIntervals)
+        {
+            SkipBox.Items.Add($"{seconds} seconds");
+        }
+
+        SkipBox.SelectedIndex = Array.IndexOf(Settings.SkipIntervals, settings.SkipSeconds);
+
         CloseToTraySwitch.IsOn = settings.CloseToTray;
+        OpenAtLoginSwitch.IsOn = Startup.IsEnabled;
 
         YouLyPlusSwitch.IsOn = settings.IsEnabled(LyricsSource.YouLyPlus);
         BetterLyricsSwitch.IsOn = settings.IsEnabled(LyricsSource.BetterLyrics);
@@ -119,6 +131,38 @@ public sealed partial class SettingsPage : Page
         if (!_loaded) return;
         App.SetCloseToTray(CloseToTraySwitch.IsOn);
     }
+
+    private void OnSkipButtonsToggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        App.Settings.Update(s => s.ShowsSkipButtons = SkipButtonsSwitch.IsOn);
+    }
+
+    private void OnSkipChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_loaded || SkipBox.SelectedIndex < 0) return;
+        var seconds = Settings.SkipIntervals[SkipBox.SelectedIndex];
+        App.Settings.Update(s => s.SkipSeconds = seconds);
+    }
+
+    // MARK: Windows
+
+    private void OnOpenAtLoginToggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        var on = OpenAtLoginSwitch.IsOn;
+        if (!Startup.Apply(on))
+        {
+            Notice("Windows wouldn't accept the login setting.");
+            Load();
+            return;
+        }
+
+        App.Settings.Update(s => s.OpenAtLogin = on);
+    }
+
+    private void OnChooseOutputClick(object sender, RoutedEventArgs e) =>
+        AudioOutputMenu.Show(OutputSettingsButton);
 
     // MARK: lyrics
 

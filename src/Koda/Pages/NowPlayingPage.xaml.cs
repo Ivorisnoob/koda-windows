@@ -113,7 +113,9 @@ public sealed partial class NowPlayingPage : Page
         Playback.PlayStateChanged += OnPlayStateChanged;
         Playback.PositionTick += OnPositionTick;
         App.Library.Changed += OnLibraryChanged;
+        App.Settings.Changed += OnSettingsChanged;
         Volume.Value = App.Volume;
+        ApplySkipSettings();
         RenderTrack();
         RenderQueue();
         RenderPlayState();
@@ -133,6 +135,7 @@ public sealed partial class NowPlayingPage : Page
         Playback.PlayStateChanged -= OnPlayStateChanged;
         Playback.PositionTick -= OnPositionTick;
         App.Library.Changed -= OnLibraryChanged;
+        App.Settings.Changed -= OnSettingsChanged;
         _lyrics?.Pause();
         Drift.Stop();
     }
@@ -141,6 +144,7 @@ public sealed partial class NowPlayingPage : Page
     private void OnQueueChanged() => DispatcherQueue.TryEnqueue(RenderQueue);
     private void OnPlayStateChanged() => DispatcherQueue.TryEnqueue(RenderPlayState);
     private void OnLibraryChanged() => DispatcherQueue.TryEnqueue(UpdateLike);
+    private void OnSettingsChanged(Settings settings) => DispatcherQueue.TryEnqueue(ApplySkipSettings);
 
     // MARK: the song
 
@@ -157,6 +161,7 @@ public sealed partial class NowPlayingPage : Page
         TitleText.Text = song.Title;
         ArtistLink.Content = song.ArtistLine;
         ArtistLink.IsEnabled = song.Artists.Any(a => a.Id is not null);
+        SkipBackButton.IsEnabled = SkipForwardButton.IsEnabled = true;
         Art.SetSource(Cover, song.Artwork);
         Art.SetSource(CompactCoverImage, song.Artwork);
         Art.SetSource(BackdropArt, song.Artwork);
@@ -434,6 +439,29 @@ public sealed partial class NowPlayingPage : Page
     private void OnPlayClick(object sender, RoutedEventArgs e) => Playback.Toggle();
     private void OnPrevClick(object sender, RoutedEventArgs e) => _ = Playback.PreviousAsync();
     private void OnNextClick(object sender, RoutedEventArgs e) => _ = Playback.NextAsync();
+    private void OnSkipBackClick(object sender, RoutedEventArgs e) => Playback.Skip(-App.Settings.SkipSeconds);
+    private void OnSkipForwardClick(object sender, RoutedEventArgs e) => Playback.Skip(App.Settings.SkipSeconds);
+
+    /// <summary>The skip ends follow the listener's interval in Settings, or go away when
+    /// they turned the buttons off; the labels carry the seconds and the shortcut.</summary>
+    private void ApplySkipSettings()
+    {
+        var settings = App.Settings;
+        var seconds = settings.SkipSeconds;
+        var shown = settings.ShowsSkipButtons;
+        var visibility = shown ? Visibility.Visible : Visibility.Collapsed;
+
+        SkipBackButton.Visibility = SkipForwardButton.Visibility = visibility;
+        SkipBackColumn.Width = SkipForwardColumn.Width = shown ? GridLength.Auto : new GridLength(0);
+        SkipBackIcon.Seconds = SkipForwardIcon.Seconds = seconds;
+
+        var back = $"Back {seconds} seconds";
+        var ahead = $"Ahead {seconds} seconds";
+        ToolTipService.SetToolTip(SkipBackButton, $"{back} (Ctrl+Alt+Left)");
+        ToolTipService.SetToolTip(SkipForwardButton, $"{ahead} (Ctrl+Alt+Right)");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(SkipBackButton, back);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(SkipForwardButton, ahead);
+    }
 
     private void OnVolumeChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
@@ -460,6 +488,16 @@ public sealed partial class NowPlayingPage : Page
         {
             SongMenu.Build(song, [.. Playback.Queue.Items.Select(i => i.Song)]).ShowAt(MoreButton);
         }
+    }
+
+    private void OnOutputClick(object sender, RoutedEventArgs e) => AudioOutputMenu.Show(OutputButton);
+
+    /// <summary>The overlay is the player in miniature: leaving the full page first keeps
+    /// the library from sitting behind it in a second player view.</summary>
+    private void OnMiniClick(object sender, RoutedEventArgs e)
+    {
+        App.Shell?.ShowMiniPlayer();
+        Close();
     }
 
     private void OnRetryClick(object sender, RoutedEventArgs e) => Playback.Toggle();

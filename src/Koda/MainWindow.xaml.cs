@@ -33,11 +33,18 @@ public sealed partial class MainWindow : Window
     private const int MinWindowDipHeight = 520;
 
     private TrayIconHost? _tray;
+    private Taskbar? _taskbar;
+    private MiniPlayerWindow? _mini;
     private readonly SmtcController _smtc = new();
     private nint _previousWndProc;
+    private bool _placementApplied;
     private bool _scrubbing;
     private bool _suppressVolumePersistence;
-    private bool _suppressNavSelection;
+    private string? _currentTag;
+    private string _playlistSignature = "";
+    private bool _hasUpNext;
+    private Guid _upNextId;
+    private readonly List<NavigationViewItem> _playlistItems = [];
     private DispatcherQueueTimer? _volumeSaveTimer;
     private DispatcherQueueTimer? _statusTimer;
     private DispatcherQueueTimer? _suggestTimer;
@@ -70,10 +77,15 @@ public sealed partial class MainWindow : Window
         Activated += OnActivated;
 
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        WindowPlacement.Restore(hwnd);
         _previousWndProc = Win32.SetWindowLongPtr(
             hwnd, Win32.GWLP_WNDPROC, Marshal.GetFunctionPointerForDelegate(SubclassedProc));
 
         _smtc.Bind(hwnd, OnSmtcButton);
+        _taskbar = new Taskbar(hwnd,
+            () => _ = Playback.PreviousAsync(),
+            Playback.Toggle,
+            () => _ = Playback.NextAsync());
 
         _tray = new TrayIconHost(
             hwnd,
@@ -88,7 +100,10 @@ public sealed partial class MainWindow : Window
         Playback.PlayStateChanged += OnPlayStateChanged;
         Playback.PositionTick += OnPositionTick;
         Playback.StatusRaised += OnStatusRaised;
+        App.Library.Changed += () => dispatch.TryEnqueue(RefreshSidebar);
+        App.AudioStore.Changed += () => dispatch.TryEnqueue(RefreshSidebar);
         App.Library.Changed += () => dispatch.TryEnqueue(UpdateLike);
+        App.Settings.Changed += _ => dispatch.TryEnqueue(ApplySkipSettings);
 
         Scrubber.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnScrubberPressed), true);
         Scrubber.AddHandler(UIElement.PointerCaptureLostEvent, new PointerEventHandler(OnScrubberReleased), true);
@@ -100,6 +115,7 @@ public sealed partial class MainWindow : Window
         _suppressVolumePersistence = true;
         VolumeSlider.Value = App.Volume;
         _suppressVolumePersistence = false;
+
         _volumeSaveTimer = dispatch.CreateTimer();
         _volumeSaveTimer.Interval = TimeSpan.FromMilliseconds(600);
         _volumeSaveTimer.IsRepeating = false;
@@ -116,21 +132,31 @@ public sealed partial class MainWindow : Window
         _suggestTimer.Tick += (_, _) => _ = LoadSuggestionsAsync(TitleSearch.Text);
 
         AddShortcuts();
+        ApplySkipSettings();
 
         ContentFrame.Navigated += OnContentNavigated;
-        NavigateTo(typeof(HomePage));
+        Nav.RegisterPropertyChangedCallback(NavigationView.IsPaneOpenProperty, (_, _) => UpdatePaneChrome());
+        NavigateRoot(typeof(HomePage), null, "home");
+        RefreshSidebar();
 
         OnTrackChanged();
         OnPlayStateChanged();
 
         Closed += (_, _) =>
         {
+            // The overlay is a second window: closing the library closes it too, so the
+            // process ends instead of leaving a picture-in-picture with no app behind it.
+            CloseMiniPlayer();
             Playback.Shutdown();
+            _taskbar?.Dispose();
             _tray?.Dispose();
             _smtc.Dispose();
             _current = null;
         };
     }
+
+    /// <summary>The window handle, for the shell integrations that need one.</summary>
+    public nint Handle => WinRT.Interop.WindowNative.GetWindowHandle(this);
 
     // MARK: title bar
 
@@ -153,6 +179,18 @@ public sealed partial class MainWindow : Window
         // Windows dims an inactive window's title; ours follows.
         AppTitle.Foreground = (Brush)Application.Current.Resources[
             args.WindowActivationState == WindowActivationState.Deactivated ? "TextFillColorTertiaryBrush" : "TextFillColorPrimaryBrush"];
+
+        // SetWindowPlacement remembers the normal rectangle before the window is shown,
+        // but WinUI activates it normal; the saved maximised state is applied once the
+        // window is really on screen, so tearing it down starts from the same place.
+        if (!_placementApplied)
+        {
+            _placementApplied = true;
+            if (App.Settings.WindowMaximized)
+            {
+                (AppWindow.Presenter as OverlappedPresenter)?.Maximize();
+            }
+        }
     }
 
     /// <summary>The caption buttons' space is kept clear, and the back button and search field stay clickable.</summary>
@@ -188,39 +226,134 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        ContentFrame.Navigate(page, parameter, new Microsoft.UI.Xaml.Media.Animation.EntranceNavigationTransitionInfo());
+        try
+        {
+            ContentFrame.Navigate(page, parameter, new Microsoft.UI.Xaml.Media.Animation.EntranceNavigationTransitionInfo());
+        }
+        catch (Exception error)
+        {
+            App.WriteError($"Could not open {page.Name}", error);
+            Note($"{page.Name} couldn't open. The reason was written to crash.txt.");
+            if (_currentTag is { } current)
+            {
+                SelectTag(current);
+            }
+        }
     }
 
-    private void OnNavSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+    /// <summary>A sidebar section's own page: what is behind it is dropped, so Back stops here.</summary>
+    public void NavigateRoot(Type page, object? parameter = null, string? tag = null)
     {
-        if (_suppressNavSelection)
+        if (tag is not null && tag == _currentTag && !ContentFrame.CanGoBack && ContentFrame.CurrentSourcePageType == page)
         {
             return;
         }
 
-        Type? page = args.IsSettingsSelected
-            ? typeof(SettingsPage)
-            : (sender.SelectedItem as NavigationViewItem)?.Tag switch
+        try
+        {
+            ContentFrame.Navigate(page, parameter, new Microsoft.UI.Xaml.Media.Animation.EntranceNavigationTransitionInfo());
+            ContentFrame.BackStack.Clear();
+            ContentFrame.ForwardStack.Clear();
+        }
+        catch (Exception error)
+        {
+            App.WriteError($"Could not open {page.Name}", error);
+            Note($"{page.Name} couldn't open. The reason was written to crash.txt.");
+            if (_currentTag is { } current)
             {
-                "home" => typeof(HomePage),
-                "search" => typeof(SearchPage),
-                "library" => typeof(LibraryPage),
-                _ => null,
-            };
-        if (page is null)
+                SelectTag(current);
+            }
+        }
+    }
+
+    private void OnNavItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
+    {
+        if (args.IsSettingsInvoked)
         {
+            NavigateRoot(typeof(SettingsPage), null, "settings");
             return;
         }
 
-        if (page == typeof(SearchPage))
+        var tag = (args.InvokedItemContainer as NavigationViewItem)?.Tag as string;
+        switch (tag)
         {
-            TitleSearch.Focus(FocusState.Programmatic);
+            case "home":
+                NavigateRoot(typeof(HomePage), null, tag);
+                break;
+            case "browse":
+                NavigateRoot(typeof(BrowsePage), null, tag);
+                break;
+            case "search":
+                ShowSearch();
+                break;
+            case "recent":
+            case "liked":
+            case "downloads":
+            case "offline":
+                NavigateRoot(typeof(SongsPage), tag, tag);
+                break;
+            case "history":
+                NavigateRoot(typeof(HistoryPage), null, tag);
+                break;
+            case "albums":
+            case "playlists":
+            case "artists":
+                NavigateRoot(typeof(LibraryGridPage), tag, tag);
+                break;
+            case "stats":
+                NavigateRoot(typeof(StatsPage), null, tag);
+                break;
+            case "glance":
+                NavigateRoot(typeof(StatsPage), null, "stats");
+                break;
+            case "up-next":
+                ShowQueue();
+                break;
+            case "new-playlist":
+                _ = Dialogs.CreatePlaylistAsync([]);
+                break;
+            case not null when tag.StartsWith("playlist:", StringComparison.Ordinal)
+                                && Guid.TryParse(tag["playlist:".Length..], out var id):
+                NavigateRoot(typeof(UserPlaylistPage), id, tag);
+                break;
+        }
+    }
+
+    /// <summary>Search results is a place only once there is a search; the sidebar gains it then.</summary>
+    public void SearchFor(string query)
+    {
+        query = query.Trim();
+        SearchResultsItem.Visibility = Visibility.Visible;
+        TitleSearch.Text = query;
+        if (ContentFrame.Content is SearchPage open)
+        {
+            if (query.Length > 0)
+            {
+                open.Search(query);
+            }
+
+            SelectTag("search");
+        }
+        else
+        {
+            NavigateRoot(typeof(SearchPage), query.Length > 0 ? query : null, "search");
         }
 
-        if (ContentFrame.CurrentSourcePageType != page || ContentFrame.CanGoBack)
+        TitleSearch.Focus(FocusState.Programmatic);
+    }
+
+    private void ShowSearch()
+    {
+        var query = TitleSearch.Text.Trim();
+        if (query.Length > 0)
         {
-            ContentFrame.Navigate(page, null, new Microsoft.UI.Xaml.Media.Animation.EntranceNavigationTransitionInfo());
+            SearchFor(query);
+            return;
         }
+
+        SearchResultsItem.Visibility = Visibility.Visible;
+        NavigateRoot(typeof(SearchPage), null, "search");
+        TitleSearch.Focus(FocusState.Programmatic);
     }
 
     private void OnBackClick(object sender, RoutedEventArgs e) => GoBack();
@@ -238,25 +371,223 @@ public sealed partial class MainWindow : Window
         BackButton.IsEnabled = ContentFrame.CanGoBack;
         // Now Playing is the whole player: the bar steps aside while it is open.
         PlayerBar.Visibility = args.SourcePageType == typeof(NowPlayingPage) ? Visibility.Collapsed : Visibility.Visible;
-        // The rail shows the section the page belongs to; detail pages keep their section lit.
-        var tag = args.SourcePageType.Name switch
+        if (args.SourcePageType == typeof(SearchPage))
         {
-            nameof(HomePage) or nameof(MoodPage) => "home",
-            nameof(SearchPage) => "search",
-            nameof(LibraryPage) => "library",
-            _ => null,
-        };
-        _suppressNavSelection = true;
-        if (args.SourcePageType == typeof(SettingsPage))
+            SearchResultsItem.Visibility = Visibility.Visible;
+        }
+
+        // The pane shows the section the page belongs to; detail pages keep their section lit.
+        _currentTag = TagFor(args.SourcePageType, args.Parameter);
+        if (_currentTag is null)
+        {
+            return;
+        }
+
+        if (_currentTag == "settings")
         {
             Nav.SelectedItem = Nav.SettingsItem;
         }
-        else if (tag is not null)
+        else
         {
-            Nav.SelectedItem = Nav.MenuItems.OfType<NavigationViewItem>().FirstOrDefault(i => i.Tag as string == tag);
+            SelectTag(_currentTag);
+        }
+    }
+
+    private static string? TagFor(Type page, object? parameter) => page.Name switch
+    {
+        nameof(HomePage) => "home",
+        nameof(BrowsePage) or nameof(MoodPage) => "browse",
+        nameof(SearchPage) => "search",
+        nameof(HistoryPage) => "history",
+        nameof(StatsPage) => "stats",
+        nameof(SongsPage) => (parameter as string) switch
+        {
+            "recent" => "recent",
+            "downloads" => "downloads",
+            "offline" => "offline",
+            _ => "liked",
+        },
+        nameof(LibraryGridPage) => (parameter as string) switch
+        {
+            "playlists" => "playlists",
+            "artists" => "artists",
+            _ => "albums",
+        },
+        nameof(UserPlaylistPage) => parameter is Guid id ? $"playlist:{id}" : null,
+        nameof(AlbumPage) => "albums",
+        nameof(PlaylistPage) => "playlists",
+        nameof(ArtistPage) => "artists",
+        nameof(SettingsPage) => "settings",
+        _ => null,
+    };
+
+    private void SelectTag(string tag)
+    {
+        if (tag == "settings")
+        {
+            Nav.SelectedItem = Nav.SettingsItem;
+            return;
         }
 
-        _suppressNavSelection = false;
+        var item = Nav.MenuItems.Concat(Nav.FooterMenuItems)
+            .OfType<NavigationViewItem>()
+            .FirstOrDefault(i => i.Tag as string == tag);
+        if (item is not null)
+        {
+            Nav.SelectedItem = item;
+        }
+    }
+
+    // MARK: sidebar counts and foot
+
+    private void RefreshSidebar()
+    {
+        SetBadge(LikedItem, App.Library.Liked.Length);
+        SetBadge(DownloadsItem, App.AudioStore.Downloads.Length);
+        RebuildPlaylists();
+        UpdateGlance();
+        UpdateUpNext();
+    }
+
+    private static void SetBadge(NavigationViewItem item, int count)
+    {
+        if (count <= 0)
+        {
+            item.InfoBadge = null;
+        }
+        else if (item.InfoBadge is InfoBadge badge)
+        {
+            badge.Value = count;
+        }
+        else
+        {
+            item.InfoBadge = new InfoBadge { Value = count };
+        }
+    }
+
+    /// <summary>The listener's playlists in the pane, between their header and New Playlist.</summary>
+    private void RebuildPlaylists()
+    {
+        var playlists = App.Library.UserPlaylists;
+        var signature = string.Join("|", playlists.Select(p => $"{p.Id}:{p.Name}:{p.Songs.Length}:{p.Modified.UtcTicks}"));
+        if (signature == _playlistSignature)
+        {
+            return;
+        }
+
+        _playlistSignature = signature;
+        foreach (var old in _playlistItems)
+        {
+            Nav.MenuItems.Remove(old);
+        }
+
+        _playlistItems.Clear();
+        var at = Nav.MenuItems.IndexOf(NewPlaylistItem);
+        if (at < 0)
+        {
+            at = Nav.MenuItems.Count;
+        }
+
+        foreach (var playlist in playlists)
+        {
+            var item = BuildPlaylistItem(playlist);
+            Nav.MenuItems.Insert(at++, item);
+            _playlistItems.Add(item);
+        }
+
+        // A new playlist from a song menu, or a rename: the pane follows the selection.
+        if (_currentTag is { } tag && tag.StartsWith("playlist:", StringComparison.Ordinal))
+        {
+            SelectTag(tag);
+        }
+    }
+
+    private NavigationViewItem BuildPlaylistItem(Koda.Core.UserPlaylist playlist)
+    {
+        var item = new NavigationViewItem
+        {
+            Content = playlist.Name,
+            Tag = $"playlist:{playlist.Id}",
+            Icon = new FontIcon { Glyph = "\uE8FD" },
+        };
+
+        var menu = new MenuFlyout();
+        var play = SongMenu.Item("Play", "\uE768", () =>
+        {
+            if (playlist.Songs.Length > 0)
+            {
+                _ = Playback.PlayNowAsync(playlist.Songs[0], playlist.Songs);
+            }
+        });
+        play.IsEnabled = playlist.Songs.Length > 0;
+        menu.Items.Add(play);
+        var queue = SongMenu.Item("Add to queue", "\uE71C", () => Playback.AddToQueue(playlist.Songs));
+        queue.IsEnabled = playlist.Songs.Length > 0;
+        menu.Items.Add(queue);
+        menu.Items.Add(new MenuFlyoutSeparator());
+        menu.Items.Add(SongMenu.Item("Rename…", "\uE70F", () => _ = Dialogs.RenamePlaylistAsync(playlist)));
+        menu.Items.Add(SongMenu.Item("Delete playlist…", "\uE74D", () => _ = DeletePlaylistAsync(playlist)));
+        item.ContextFlyout = menu;
+        return item;
+    }
+
+    private async System.Threading.Tasks.Task DeletePlaylistAsync(Koda.Core.UserPlaylist playlist)
+    {
+        if (!await Dialogs.ConfirmAsync($"Delete “{playlist.Name}”?",
+                "The songs stay wherever else you saved them.", "Delete Playlist"))
+        {
+            return;
+        }
+
+        if (_currentTag == $"playlist:{playlist.Id}")
+        {
+            NavigateRoot(typeof(HomePage), null, "home");
+        }
+
+        App.Library.DeletePlaylist(playlist.Id);
+    }
+
+    private void UpdateGlance()
+    {
+        GlanceListened.Text = $"{Format.Listening(App.Library.ListeningOn(DateTimeOffset.Now))} today";
+        var streak = App.Library.Streak();
+        GlanceStreak.Text = streak == 0 ? "Start a streak" : Format.StreakLine(streak);
+    }
+
+    private void UpdateUpNext()
+    {
+        var next = Playback.Queue.Upcoming.FirstOrDefault();
+        _hasUpNext = next is not null;
+        _upNextId = next?.Id ?? Guid.Empty;
+        UpNextTitle.Text = next?.Song.Title ?? "";
+        UpNextArtist.Text = next?.Song.ArtistLine ?? "";
+        Art.SetSource(UpNextArt, next?.Song.Artwork);
+        UpdatePaneChrome();
+    }
+
+    private void UpdatePaneChrome()
+    {
+        var open = Nav.IsPaneOpen;
+        UpNextItem.Visibility = open && _hasUpNext ? Visibility.Visible : Visibility.Collapsed;
+        GlanceItem.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void OnShowQueueClick(object sender, RoutedEventArgs e) => ShowQueue();
+
+    private void ShowQueue()
+    {
+        if (Playback.CurrentSong is not null && ContentFrame.Content is not NowPlayingPage)
+        {
+            ContentFrame.Navigate(typeof(NowPlayingPage), "queue", new Microsoft.UI.Xaml.Media.Animation.DrillInNavigationTransitionInfo());
+        }
+    }
+
+    private void OnUpNextClick(object sender, RoutedEventArgs e)
+    {
+        if (_upNextId != Guid.Empty)
+        {
+            _ = Playback.JumpAsync(_upNextId);
+        }
     }
 
     // MARK: search in the title bar
@@ -308,7 +639,7 @@ public sealed partial class MainWindow : Window
         }
 
         sender.Text = query;
-        NavigateTo(typeof(SearchPage), query);
+        SearchFor(query);
     }
 
     public void SetSearchText(string query) => TitleSearch.Text = query;
@@ -331,6 +662,8 @@ public sealed partial class MainWindow : Window
         Add(VirtualKey.GoBack, VirtualKeyModifiers.None, GoBack);
         Add(VirtualKey.Right, VirtualKeyModifiers.Control, () => _ = Playback.NextAsync());
         Add(VirtualKey.Left, VirtualKeyModifiers.Control, () => _ = Playback.PreviousAsync());
+        Add(VirtualKey.Left, VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu, () => Playback.Skip(-App.Settings.SkipSeconds));
+        Add(VirtualKey.Right, VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu, () => Playback.Skip(App.Settings.SkipSeconds));
         Root.KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden;
 
         // Space plays/pauses unless something that types or presses has focus.
@@ -366,13 +699,15 @@ public sealed partial class MainWindow : Window
 
         NextButton.IsEnabled = Playback.CanNext;
         PreviousButton.IsEnabled = song is not null;
-        QueueButton.IsEnabled = ShuffleButton.IsEnabled = RepeatButton.IsEnabled = song is not null;
+        QueueButton.IsEnabled = MiniButton.IsEnabled = ShuffleButton.IsEnabled = RepeatButton.IsEnabled = song is not null;
+        SkipBackButton.IsEnabled = SkipForwardButton.IsEnabled = song is not null && !Playback.IsLoading;
         _smtc.SetTransport(Playback.CanPrev, Playback.CanNext);
         Scrubber.Maximum = Math.Max(1, Playback.DurationSeconds);
         Scrubber.Value = Math.Clamp(Playback.PositionSeconds, 0, Scrubber.Maximum);
         ElapsedText.Text = song is null ? "" : FormatTime(Scrubber.Value);
         TotalText.Text = Playback.DurationSeconds > 0 ? FormatTime(Playback.DurationSeconds) : "";
         OnQueueModesChanged();
+        UpdateTaskbar();
     }
 
     private void OnQueueModesChanged()
@@ -388,6 +723,7 @@ public sealed partial class MainWindow : Window
             _ => "Repeat off",
         });
         NextButton.IsEnabled = Playback.CanNext;
+        UpdateUpNext();
     }
 
     private void OnShuffleClick(object sender, RoutedEventArgs e) => Playback.SetShuffle(ShuffleButton.IsChecked == true);
@@ -461,12 +797,15 @@ public sealed partial class MainWindow : Window
         PlayPauseButton.IsEnabled = Playback.CurrentSong is not null;
         Scrubber.IsEnabled = Playback.CurrentSong is not null;
         NextButton.IsEnabled = Playback.CanNext;
+        SkipBackButton.IsEnabled = SkipForwardButton.IsEnabled = Playback.CurrentSong is not null && !loading;
+        UpdateTaskbar();
     }
 
     private void OnPositionTick()
     {
         // The like state is read again each tick too: a cheap belt to the Changed braces.
         if (LikeButton.Visibility == Visibility.Visible) UpdateLike();
+        UpdateTaskbar();
         var duration = Playback.DurationSeconds;
         if (duration <= 0 || _scrubbing)
         {
@@ -478,6 +817,14 @@ public sealed partial class MainWindow : Window
         ElapsedText.Text = FormatTime(Scrubber.Value);
         TotalText.Text = FormatTime(duration);
     }
+
+    /// <summary>The taskbar's transport buttons and progress bar follow the queue.</summary>
+    private void UpdateTaskbar() => _taskbar?.Update(
+        Playback.CurrentSong is not null,
+        Playback.IsPlaying,
+        Playback.IsLoading,
+        Playback.PositionSeconds,
+        Playback.DurationSeconds);
 
     private static string FormatTime(double seconds)
     {
@@ -512,9 +859,34 @@ public sealed partial class MainWindow : Window
 
     private void OnPlayPauseClick(object sender, RoutedEventArgs e) => Playback.Toggle();
 
+    private void OnMiniClick(object sender, RoutedEventArgs e) => ShowMiniPlayer();
+
     private void OnPrevClick(object sender, RoutedEventArgs e) => _ = Playback.PreviousAsync();
 
     private void OnNextClick(object sender, RoutedEventArgs e) => _ = Playback.NextAsync();
+
+    private void OnSkipBackClick(object sender, RoutedEventArgs e) => Playback.Skip(-App.Settings.SkipSeconds);
+
+    private void OnSkipForwardClick(object sender, RoutedEventArgs e) => Playback.Skip(App.Settings.SkipSeconds);
+
+    /// <summary>The skip buttons follow the listener's interval, or go away if they turned
+    /// them off; the tooltips and the screen reader names carry the seconds and the keys.</summary>
+    private void ApplySkipSettings()
+    {
+        var settings = App.Settings;
+        var seconds = settings.SkipSeconds;
+        var visible = settings.ShowsSkipButtons ? Visibility.Visible : Visibility.Collapsed;
+
+        SkipBackButton.Visibility = SkipForwardButton.Visibility = visible;
+        SkipBackIcon.Seconds = SkipForwardIcon.Seconds = seconds;
+
+        var back = $"Back {seconds} seconds";
+        var ahead = $"Ahead {seconds} seconds";
+        ToolTipService.SetToolTip(SkipBackButton, $"{back} (Ctrl+Alt+Left)");
+        ToolTipService.SetToolTip(SkipForwardButton, $"{ahead} (Ctrl+Alt+Right)");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(SkipBackButton, back);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(SkipForwardButton, ahead);
+    }
 
     private void OnMuteClick(object sender, RoutedEventArgs e)
     {
@@ -522,6 +894,8 @@ public sealed partial class MainWindow : Window
         MuteIcon.Glyph = Playback.IsMuted ? "" : "";
         ToolTipService.SetToolTip(MuteButton, Playback.IsMuted ? "Unmute" : "Mute");
     }
+
+    private void OnOutputClick(object sender, RoutedEventArgs e) => AudioOutputMenu.Show(OutputButton);
 
     private void OnVolumeChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
@@ -585,7 +959,7 @@ public sealed partial class MainWindow : Window
                 Playback.Toggle();
                 break;
             case TrayIconHost.MenuShow:
-                ShowShell();
+                ShowFromTray();
                 break;
             case TrayIconHost.MenuExit:
                 ExitApplication();
@@ -593,21 +967,84 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void ShowShell()
+    /// <summary>
+    /// Brings the running window forward: from the tray, or because a second
+    /// launch was redirected here. Restores a minimised/hidden window first.
+    /// </summary>
+    public void ShowFromTray()
     {
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        Win32.ShowWindowAsync(hwnd, Win32.SW_RESTORE);
-        Win32.SetForegroundWindow(hwnd);
         AppWindow.Show();
+        Win32.ShowWindowAsync(hwnd, Win32.SW_RESTORE);
         Activate();
+        if (!Win32.SetForegroundWindow(hwnd) || Win32.GetForegroundWindow() != hwnd)
+        {
+            Win32.SwitchToThisWindow(hwnd, altTab: true);
+        }
+    }
+
+    /// <summary>
+    /// Open the compact overlay, or bring the one that is already open forward. It is a
+    /// second window so the library stays usable behind it; a second request focuses the
+    /// same overlay instead of stacking another.
+    /// </summary>
+    public void ShowMiniPlayer()
+    {
+        if (Playback.CurrentSong is null)
+        {
+            return;
+        }
+
+        if (_mini is not null)
+        {
+            _mini.Activate();
+            return;
+        }
+
+        var mini = new MiniPlayerWindow();
+        _mini = mini;
+        mini.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_mini, mini))
+            {
+                _mini = null;
+            }
+        };
+        mini.Activate();
+    }
+
+    /// <summary>Hiding the library hides the overlay with it; there is nothing left to see.</summary>
+    public void CloseMiniPlayer()
+    {
+        var mini = _mini;
+        _mini = null;
+        mini?.Close();
     }
 
     private void ExitApplication()
     {
+        WindowPlacement.Save(Handle);
+        CloseMiniPlayer();
         Playback.Shutdown();
+        _taskbar?.Dispose();
         _tray?.Dispose();
         _smtc.Dispose();
         Application.Current.Exit();
+    }
+
+    /// <summary>The end of a Windows session: keep the queue, the library and the
+    /// window placement, but do not stop playback in case the shutdown is cancelled.</summary>
+    private static void FlushSession()
+    {
+        if (_current is { } window)
+        {
+            WindowPlacement.Save(window.Handle);
+        }
+
+        PlaybackService.Instance.SaveState();
+        App.Library.Flush();
+        App.AudioStore.Flush();
+        App.Settings.Save();
     }
 
     private static nint OnWndProc(nint hwnd, uint msg, nint wParam, nint lParam)
@@ -625,13 +1062,51 @@ public sealed partial class MainWindow : Window
             }
 
             case Win32.WM_CLOSE:
+                if (_current is not null)
+                {
+                    WindowPlacement.Save(hwnd);
+                }
+
                 if (App.CloseToTray && _current is not null)
                 {
+                    _current.CloseMiniPlayer();
                     _current.AppWindow.Hide();
                     return 0;
                 }
 
                 break;
+
+            case Win32.WM_EXITSIZEMOVE:
+                if (_current is not null)
+                {
+                    WindowPlacement.Save(hwnd);
+                }
+
+                break;
+
+            case Win32.WM_COMMAND:
+            {
+                var id = (int)((long)wParam & 0xFFFF);
+                var code = (int)(((long)wParam >> 16) & 0xFFFF);
+                if (code == Taskbar.ThumbnailClicked && _current?._taskbar?.HandleCommand(id) == true)
+                {
+                    return 0;
+                }
+
+                break;
+            }
+
+            case Win32.WM_QUERYENDSESSION:
+                FlushSession();
+                return 1;
+
+            case Win32.WM_ENDSESSION:
+                if (wParam != 0)
+                {
+                    FlushSession();
+                }
+
+                return 0;
 
             case TrayIconHost.TrayCallbackMessage:
                 _current?._tray?.HandleMessage(lParam);

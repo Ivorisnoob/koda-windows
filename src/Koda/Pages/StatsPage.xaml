@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Koda.Pages.StatsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Koda.Controls"
+    xmlns:helpers="using:Koda.Helpers">
+    <Page.Resources>
+        <DataTemplate x:Key="RankedSongTemplate">
+            <Grid Height="52" ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="24" />
+                    <ColumnDefinition Width="40" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding RankText}" VerticalAlignment="Center" HorizontalAlignment="Right"
+                           Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                <Border Grid.Column="1" Width="40" Height="40" VerticalAlignment="Center" CornerRadius="{StaticResource ThumbRadius}" Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                    <Grid>
+                        <FontIcon Glyph="&#xE8D6;" FontSize="14" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                        <Image helpers:Art.Pixels="40" helpers:Art.Source="{Binding Artwork}" Stretch="UniformToFill" />
+                    </Grid>
+                </Border>
+                <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="1">
+                    <TextBlock Text="{Binding Title}" Style="{ThemeResource BodyTextBlockStyle}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                    <TextBlock Text="{Binding Subtitle}" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                </StackPanel>
+                <TextBlock Grid.Column="3" MinWidth="40" TextAlignment="Right" VerticalAlignment="Center"
+                           Text="{Binding Duration, Converter={StaticResource SecondsText}}"
+                           Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="TopArtistTemplate">
+            <Grid Height="52" ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="24" />
+                    <ColumnDefinition Width="40" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding RankText}" VerticalAlignment="Center" HorizontalAlignment="Right"
+                           Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                <Border Grid.Column="1" Width="40" Height="40" VerticalAlignment="Center" CornerRadius="20" Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                    <Grid>
+                        <FontIcon Glyph="&#xE77B;" FontSize="14" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                        <Image helpers:Art.Pixels="40" helpers:Art.Source="{Binding Artwork}" Stretch="UniformToFill" />
+                    </Grid>
+                </Border>
+                <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="1">
+                    <TextBlock Text="{Binding Name}" Style="{ThemeResource BodyTextBlockStyle}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                    <TextBlock Text="{Binding Detail}" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                </StackPanel>
+                <FontIcon Grid.Column="3" Glyph="&#xE76C;" FontSize="12" VerticalAlignment="Center"
+                          Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                          Visibility="{Binding HasArtist, Converter={StaticResource BoolToVisibility}}" />
+            </Grid>
+        </DataTemplate>
+    </Page.Resources>
+
+    <ScrollViewer>
+        <StackPanel Padding="26,16,26,40" Spacing="20">
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center" Spacing="2">
+                    <TextBlock Text="Library" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock Text="Listening Stats" Style="{ThemeResource TitleTextBlockStyle}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
+                    <SelectorBar x:Name="Ranges" SelectionChanged="OnRangeChanged">
+                        <SelectorBarItem Text="Week" Tag="week" IsSelected="True" />
+                        <SelectorBarItem Text="Month" Tag="month" />
+                        <SelectorBarItem Text="Year" Tag="year" />
+                    </SelectorBar>
+                    <Button x:Name="ResetButton" Visibility="Collapsed" Click="OnResetClick" Padding="14,7" ToolTipService.ToolTip="Reset your listening stats">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE7A7;" FontSize="14" />
+                            <TextBlock Text="Reset" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
+
+            <Grid x:Name="Tiles" ColumnSpacing="12" />
+
+            <Border
+                x:Name="ChartCard"
+                Padding="18"
+                CornerRadius="12"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1">
+                <StackPanel Spacing="12">
+                    <Grid>
+                        <TextBlock x:Name="ChartTitle" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                        <TextBlock x:Name="ChartHint" HorizontalAlignment="Right" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </Grid>
+                    <Grid x:Name="Chart" Height="168" ColumnSpacing="6" />
+                    <Grid x:Name="ChartLabels" ColumnSpacing="6" />
+                </StackPanel>
+            </Border>
+
+            <Grid x:Name="Lists" ColumnSpacing="32">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="3*" />
+                    <ColumnDefinition Width="2*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Top songs" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                    <TextBlock Text="All time" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <ListView
+                        x:Name="TopSongs"
+                        Margin="-12,4,0,0"
+                        SelectionMode="None"
+                        IsItemClickEnabled="True"
+                        ItemClick="OnTopSongClick"
+                        ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                        ItemContainerStyle="{StaticResource CatalogRowStyle}"
+                        ItemTemplate="{StaticResource RankedSongTemplate}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="4">
+                    <TextBlock Text="Top artists" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                    <TextBlock Text="All time" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <ListView
+                        x:Name="TopArtists"
+                        Margin="-12,4,0,0"
+                        SelectionMode="None"
+                        IsItemClickEnabled="True"
+                        ItemClick="OnTopArtistClick"
+                        ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                        ItemContainerStyle="{StaticResource CatalogRowStyle}"
+                        ItemTemplate="{StaticResource TopArtistTemplate}" />
+                </StackPanel>
+            </Grid>
+
+            <controls:ErrorState x:Name="Empty" Visibility="Collapsed" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

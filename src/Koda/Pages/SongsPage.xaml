@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Koda.Pages.SongsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Koda.Controls">
+    <Grid Padding="26,16,26,0" RowSpacing="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <Border x:Name="HeroCover" Width="88" Height="88" CornerRadius="18">
+                <FontIcon x:Name="HeroGlyph" FontSize="34" Foreground="White" />
+            </Border>
+
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                <TextBlock Text="Library" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <TextBlock x:Name="HeroTitle" Style="{ThemeResource TitleTextBlockStyle}" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="HeroDetail" Style="{ThemeResource BodyTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+
+            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
+                <Button x:Name="PlayButton" Style="{ThemeResource AccentButtonStyle}" Click="OnPlayClick" Padding="18,7">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xF5B0;" FontSize="14" />
+                        <TextBlock Text="Play" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="ShuffleButton" Click="OnShuffleClick" Padding="12,7" ToolTipService.ToolTip="Shuffle" AutomationProperties.Name="Shuffle">
+                    <FontIcon Glyph="&#xE8B1;" FontSize="14" />
+                </Button>
+                <DropDownButton x:Name="SortButton" Visibility="Collapsed" ToolTipService.ToolTip="Sort these songs" AutomationProperties.Name="Sort songs" />
+                <Button x:Name="ClearButton" Visibility="Collapsed" Click="OnClearClick" Padding="14,7" ToolTipService.ToolTip="Clear your listening history">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE74D;" FontSize="14" />
+                        <TextBlock Text="Clear" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <ListView
+            x:Name="Songs"
+            Grid.Row="1"
+            Margin="-12,0"
+            Padding="0,0,0,28"
+            SelectionMode="None"
+            IsItemClickEnabled="True"
+            ItemClick="OnSongClick"
+            ItemContainerStyle="{StaticResource CatalogRowStyle}"
+            ItemTemplate="{StaticResource SongRowTemplate}" />
+
+        <controls:ErrorState x:Name="Empty" Grid.Row="1" Visibility="Collapsed" />
+    </Grid>
+</Page>

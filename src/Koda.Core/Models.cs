@@ -169,6 +169,14 @@ public abstract record MusicItem
         public override string Title => Value.Title;
         public override Artwork? Artwork => Value.Artwork;
     }
+
+    /// <summary>A playlist the listener made here, drawn like any other collection.</summary>
+    public sealed record UserPlaylistRecord(UserPlaylist Value) : MusicItem
+    {
+        public override string Id => "u:" + Value.Id;
+        public override string Title => Value.Name;
+        public override Artwork? Artwork => Value.Songs.FirstOrDefault(s => s.Artwork is not null)?.Artwork;
+    }
 }
 
 /// <summary>A home or explore carousel.</summary>

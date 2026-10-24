@@ -1,5 +1,6 @@
 using System;
 using Koda.Core;
+using Windows.Devices.Enumeration;
 using Windows.Media.Core;
 using Windows.Media.Playback;
 
@@ -18,6 +19,8 @@ public sealed class Player : IDisposable
     private MediaPlayer? _player;
     private MediaSource? _source;
     private Koda.Core.Playback.CachingLoader? _loader;
+    /// <summary>The render device the listener chose; null follows the system default.</summary>
+    private DeviceInformation? _audioDevice;
     private readonly object _attach = new();
     /// <summary>Bumped per Load and Stop, so a source that opens late for an old track is dropped.</summary>
     private int _generation;
@@ -36,13 +39,61 @@ public sealed class Player : IDisposable
 
     public Player()
     {
-        _player = new MediaPlayer { AutoPlay = false };
-        // CommandManager off: the system flyout must stay ours.
-        _player.CommandManager.IsEnabled = false;
-        _player.MediaEnded += OnMediaEnded;
-        _player.MediaFailed += OnMediaFailed;
-        _player.CurrentStateChanged += OnCurrentStateChanged;
+        _player = NewPlayer(100, muted: false);
     }
+
+    /// <summary>
+    /// A fresh MediaPlayer, wired the one way Koda wants: no CommandManager, the
+    /// chosen render device, and no autoplay. Every per-track player is built here,
+    /// so an output change survives a skip.
+    /// </summary>
+    private MediaPlayer NewPlayer(double volume, bool muted)
+    {
+        var player = new MediaPlayer { AutoPlay = false };
+        // CommandManager off: the system flyout must stay ours.
+        player.CommandManager.IsEnabled = false;
+        if (_audioDevice is not null)
+        {
+            try
+            {
+                player.AudioDevice = _audioDevice;
+            }
+            catch (Exception)
+            {
+                // The device went away between the menu and the skip: system default.
+            }
+        }
+
+        player.Volume = Math.Clamp(volume, 0, 100) / 100.0;
+        player.IsMuted = muted;
+        player.MediaEnded += OnMediaEnded;
+        player.MediaFailed += OnMediaFailed;
+        player.CurrentStateChanged += OnCurrentStateChanged;
+        return player;
+    }
+
+    /// <summary>Play through a chosen device, now and for every song after it.
+    /// Null is the system default (and follows a headset being plugged in).</summary>
+    public void SetAudioDevice(DeviceInformation? device)
+    {
+        _audioDevice = device;
+        if (_player is not { } player)
+        {
+            return;
+        }
+
+        try
+        {
+            player.AudioDevice = device;
+        }
+        catch (Exception)
+        {
+            // Keep playing through the old device rather than go silent.
+        }
+    }
+
+    /// <summary>The device in use, or null for the system default.</summary>
+    public DeviceInformation? AudioDevice => _audioDevice;
 
     public MediaPlayerState State => _player is { } player ? player.CurrentState : MediaPlayerState.Closed;
 
@@ -99,23 +150,20 @@ public sealed class Player : IDisposable
         var lastVolume = Volume;
 
         var old = _player;
-        old.MediaEnded -= OnMediaEnded;
-        old.MediaFailed -= OnMediaFailed;
-        old.CurrentStateChanged -= OnCurrentStateChanged;
-        old.Source = null;
-        old.Dispose();
+        old?.MediaEnded -= OnMediaEnded;
+        old?.MediaFailed -= OnMediaFailed;
+        old?.CurrentStateChanged -= OnCurrentStateChanged;
+        if (old is not null)
+        {
+            old.Source = null;
+            old.Dispose();
+        }
         _source?.Dispose();
         _source = null;
         _loader?.Dispose();
         _loader = null;
 
-        _player = new MediaPlayer { AutoPlay = false };
-        _player.CommandManager.IsEnabled = false;
-        _player.MediaEnded += OnMediaEnded;
-        _player.MediaFailed += OnMediaFailed;
-        _player.CurrentStateChanged += OnCurrentStateChanged;
-        _player.Volume = Math.Clamp(lastVolume, 0, 100) / 100.0;
-        _player.IsMuted = wasMuted;
+        _player = NewPlayer(lastVolume, wasMuted);
 
         var generation = ++_generation;
         _wantsPlay = false;

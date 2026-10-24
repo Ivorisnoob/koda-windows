@@ -11,7 +11,11 @@ internal static partial class Win32
 {
     public const uint WM_GETMINMAXINFO = 0x0024;
     public const uint WM_CLOSE = 0x0010;
+    public const uint WM_QUERYENDSESSION = 0x0011;
+    public const uint WM_ENDSESSION = 0x0016;
     public const uint WM_NCDESTROY = 0x0082;
+    public const uint WM_COMMAND = 0x0111;
+    public const uint WM_EXITSIZEMOVE = 0x0232;
     public const uint WM_NULL = 0x0000;
     public const uint WM_APP = 0x8000;
     public const uint WM_APP_TRAY = WM_APP + 1;
@@ -22,6 +26,12 @@ internal static partial class Win32
     public const uint LR_LOADFROMFILE = 0x00000010;
 
     public const int SW_RESTORE = 9;
+    public const int SW_SHOWNORMAL = 1;
+    public const int SW_SHOWMINIMIZED = 2;
+    public const int SW_SHOWMAXIMIZED = 3;
+
+    public const uint MONITOR_DEFAULTTONULL = 0;
+    public const uint MONITOR_DEFAULTTONEAREST = 2;
 
     public const uint NIM_ADD = 0x00000000;
     public const uint NIM_DELETE = 0x00000002;
@@ -41,6 +51,40 @@ internal static partial class Win32
     {
         public int X;
         public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+
+        public readonly int Width => Right - Left;
+        public readonly int Height => Bottom - Top;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct WINDOWPLACEMENT
+    {
+        public int length;
+        public int flags;
+        public int showCmd;
+        public POINT ptMinPosition;
+        public POINT ptMaxPosition;
+        public RECT rcNormalPosition;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MONITORINFO
+    {
+        public int cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+
+        public static MONITORINFO Create() => new() { cbSize = Marshal.SizeOf<MONITORINFO>() };
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -97,7 +141,36 @@ internal static partial class Win32
     public static extern bool SetForegroundWindow(nint hWnd);
 
     [DllImport("user32.dll")]
+    public static extern nint GetForegroundWindow();
+
+    // Foreground handoff can be refused when the caller was not started by user
+    // input (the redirector exits without a window). This is the settled fallback.
+    [DllImport("user32.dll")]
+    public static extern void SwitchToThisWindow(nint hWnd, [MarshalAs(UnmanagedType.Bool)] bool altTab);
+
+    [DllImport("user32.dll")]
     public static extern bool ShowWindowAsync(nint hWnd, int nCmdShow);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetWindowPlacement(nint hWnd, ref WINDOWPLACEMENT lpwndpl);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetWindowPlacement(nint hWnd, ref WINDOWPLACEMENT lpwndpl);
+
+    [DllImport("user32.dll")]
+    public static extern nint MonitorFromRect(ref RECT lprc, uint dwFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetMonitorInfoW(nint hMonitor, ref MONITORINFO lpmi);
+
+    public const uint SPI_GETWORKAREA = 0x0030;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SystemParametersInfoW(uint action, uint param, ref RECT value, uint winIni);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

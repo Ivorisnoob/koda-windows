@@ -31,6 +31,15 @@
                 <Setter Property="VerticalContentAlignment" Value="Top" />
             </Style>
 
+            <!-- The same card metrics on a GridView: its container is a GridViewItem, and a style for
+                 the wrong container type fails inside XAML when the first item is realized. -->
+            <Style x:Key="CardGridItemStyle" TargetType="GridViewItem" BasedOn="{StaticResource DefaultGridViewItemStyle}">
+                <Setter Property="Padding" Value="6" />
+                <Setter Property="Margin" Value="0,0,6,0" />
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="VerticalContentAlignment" Value="Top" />
+            </Style>
+
             <!-- A song row: thumb, title over artist line, video chip, duration. -->
             <DataTemplate x:Key="SongRowTemplate">
                 <Grid Height="56" ColumnSpacing="12">
