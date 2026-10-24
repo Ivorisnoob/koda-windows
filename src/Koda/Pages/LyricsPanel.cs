@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Koda.Core;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -434,6 +435,14 @@ internal sealed class LyricsPanel : IDisposable
 
     private void LayOut(StackPanel panel, List<Word> words, double width)
     {
+        // Each word still belongs to the line it was laid out on last time; clearing the panel
+        // drops those lines but not the words from them, and a XAML element cannot be added to
+        // a second parent (0x800F1000, which crashed the app on a resize).
+        foreach (var old in panel.Children.OfType<StackPanel>())
+        {
+            old.Children.Clear();
+        }
+
         panel.Children.Clear();
         StackPanel? line = null;
         var used = 0.0;
