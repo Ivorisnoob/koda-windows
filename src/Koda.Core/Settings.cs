@@ -126,6 +126,12 @@ public sealed class Settings
     /// <summary>Off, what is searched for is not remembered.</summary>
     public bool SavesSearchHistory { get; set; } = true;
 
+    /// <summary>Off, the library stays on this PC: likes and saves aren't read from or sent to the account.</summary>
+    public bool SyncsYouTubeLibrary { get; set; } = true;
+
+    /// <summary>Off, plays aren't filed in the account's YouTube history.</summary>
+    public bool SendsPlaysToYouTube { get; set; } = true;
+
     /// <summary>How much of the songs kept from listening may take.</summary>
     public CacheLimit CacheLimit { get; set; } = CacheLimit.Standard;
 
@@ -197,6 +203,9 @@ public sealed class Settings
 
     /// <summary>The window was maximised when it was last closed.</summary>
     public bool WindowMaximized { get; set; }
+
+    /// <summary>How much the window's content is scaled, as a browser's zoom: 1 is 100%.</summary>
+    public double UiZoom { get; set; } = 1;
 
     /// <summary>The audio render device Koda plays through; null is the system default.</summary>
     public string? AudioDeviceId { get; set; }

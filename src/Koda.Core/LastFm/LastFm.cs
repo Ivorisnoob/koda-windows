@@ -6,15 +6,6 @@ using System.Text.Json.Nodes;
 
 namespace Koda.Core.LastFm;
 
-/// <summary>Where the Last.fm credentials are kept: somewhere only this user on this machine can
-/// read (the Windows Credential Manager in the app; memory in tests). Null clears them.</summary>
-public interface ISecretStore
-{
-    string? Read();
-
-    void Write(string? value);
-}
-
 /// <summary>
 /// Scrobbling to Last.fm, as the Mac and the iPhone do it.
 ///

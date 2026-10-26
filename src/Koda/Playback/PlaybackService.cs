@@ -301,6 +301,33 @@ public sealed class PlaybackService
         }
     }
 
+    /// <summary>
+    /// A link's video id carries no title or artist; its radio starts with the song
+    /// itself, which has both.
+    /// </summary>
+    public async Task PlayLinkedSongAsync(string videoId)
+    {
+        try
+        {
+            var radio = await EngineHost.Music.RadioAsync(videoId);
+            var seed = radio.Songs.FirstOrDefault(s => s.Id == videoId) ?? radio.Songs.FirstOrDefault();
+            if (seed is null)
+            {
+                StatusRaised?.Invoke(StatusTone.Fault, "That song isn't available.");
+                return;
+            }
+
+            var songs = new[] { seed }
+                .Concat(radio.Songs.Where(s => s.Id != seed.Id && !App.Library.IsUnwanted(s)))
+                .ToArray();
+            await PlayNowAsync(seed, songs);
+        }
+        catch (MusicException error)
+        {
+            StatusRaised?.Invoke(StatusTone.Fault, $"That song didn't play. {Helpers.Errors.Describe(error)}");
+        }
+    }
+
     /// <summary>Queue songs right after the current one; with nothing playing they start instead.</summary>
     public Task PlayNextAsync(Song song)
     {

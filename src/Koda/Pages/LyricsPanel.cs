@@ -252,17 +252,16 @@ internal sealed class LyricsPanel : IDisposable
             };
 
             var host = new StackPanel { Margin = new Thickness(0, 8, 0, 8), Spacing = 6 };
-            // The Mac's sides: a duet sings from the right when Duet Sides is on, and a
-            // group sings together in the middle. Everything else sits on the left.
+            // A duet sings from the right when Duet Sides is on. Everyone else sits on the
+            // left, including a group singing together: centering those lines made a duet's
+            // simultaneous lines read as one block in the middle of the panel.
             var side = settings.DuetSides && line.Voice == LyricVoice.Duet
                 ? HorizontalAlignment.Right
-                : line.Voice == LyricVoice.Together ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+                : HorizontalAlignment.Left;
             host.HorizontalAlignment = side;
             row.Words.HorizontalAlignment = side;
             row.Background.HorizontalAlignment = side;
-            var textSide = side == HorizontalAlignment.Right
-                ? TextAlignment.Right
-                : side == HorizontalAlignment.Center ? TextAlignment.Center : TextAlignment.Left;
+            var textSide = side == HorizontalAlignment.Right ? TextAlignment.Right : TextAlignment.Left;
 
             host.Children.Add(row.Words);
 

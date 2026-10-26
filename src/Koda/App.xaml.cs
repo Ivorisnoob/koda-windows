@@ -44,6 +44,10 @@ public partial class App : Application
     /// <summary>Likes, saved collections, history, stats: library.json in the data root.</summary>
     public static Koda.Core.Library Library { get; } = new(DataDirectory);
 
+    /// <summary>The YouTube Music account: the session in the Windows Credential Manager, and
+    /// the library's sync with it.</summary>
+    public static Koda.Core.YouTubeAccount Account => Koda.Services.EngineHost.Account;
+
     /// <summary>Close-to-tray: shipped ON; the settings file holds the listener's choice.</summary>
     public static bool CloseToTray => Koda.Core.Settings.Current.CloseToTray;
 
@@ -114,6 +118,13 @@ public partial class App : Application
         LastFm.IsPaused = !Settings.SavesListeningHistory;
         Settings.Changed += settings => LastFm.IsPaused = !settings.SavesListeningHistory;
         LastFm.SyncSoon();
+
+        // The YouTube Music account: the saved session signs requests, the library follows the
+        // account, and a play heard for a while goes to the account's YouTube history.
+        var account = Koda.Services.EngineHost.Account;
+        playback.ItemHeard += (item, seconds) =>
+            account.ItemHeard(item.Id, item.Song.Id, item.Song.Duration, seconds);
+        account.Start();
 
         // The Discord card follows what plays; it only shows while the listener has it on and
         // listening history is on.

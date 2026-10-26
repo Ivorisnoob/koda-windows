@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json.Nodes;
+using Koda.Core;
 using Koda.Core.LastFm;
 
 namespace Koda.Core.Tests;

@@ -25,11 +25,31 @@
             <Setter Property="Background" Value="{ThemeResource DividerStrokeColorDefaultBrush}" />
             <Setter Property="Margin" Value="16,0" />
         </Style>
+        <!-- The switch's track sits at the row's right edge, on the same line as the
+             buttons and combos. The default template reserves 12px for content after the
+             track; with no content, that space is pulled back out. -->
+        <Style x:Key="SettingsToggle" TargetType="ToggleSwitch">
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="Margin" Value="0,0,-12,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="OffContent" Value="" />
+            <Setter Property="OnContent" Value="" />
+        </Style>
     </Page.Resources>
 
-    <ScrollViewer>
-        <StackPanel Margin="32,24,32,40" MaxWidth="1000" HorizontalAlignment="Stretch">
+    <ScrollViewer x:Name="SettingsScroll">
+        <StackPanel x:Name="SettingsRoot" Margin="32,24,32,40" MaxWidth="1000" HorizontalAlignment="Stretch">
             <TextBlock Text="Settings" Style="{ThemeResource TitleTextBlockStyle}" Margin="0,0,0,16" />
+
+            <AutoSuggestBox
+                x:Name="SettingsSearch"
+                Width="440"
+                HorizontalAlignment="Left"
+                Margin="0,0,0,8"
+                PlaceholderText="Find a setting"
+                QueryIcon="Find"
+                TextChanged="OnSettingsSearchChanged"
+                AutomationProperties.Name="Find a setting" />
 
             <InfoBar
                 x:Name="NoticeBar"
@@ -38,8 +58,33 @@
                 Severity="Informational"
                 Margin="0,0,0,4" />
 
+            <StackPanel
+                x:Name="NoResults"
+                Spacing="8"
+                Margin="0,32,0,0"
+                HorizontalAlignment="Left"
+                Visibility="Collapsed">
+                <FontIcon
+                    Glyph="&#xE721;"
+                    FontSize="32"
+                    HorizontalAlignment="Left"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <TextBlock
+                    x:Name="NoResultsTitle"
+                    Style="{ThemeResource SubtitleTextBlockStyle}"
+                    TextWrapping="Wrap"
+                    MaxWidth="600"
+                    AutomationProperties.LiveSetting="Polite" />
+                <TextBlock
+                    Text="Check the spelling, or try a different word."
+                    Style="{ThemeResource BodyTextBlockStyle}"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    TextWrapping="Wrap" />
+                <HyperlinkButton Content="Clear search" Click="OnClearSettingsSearchClick" Padding="0" />
+            </StackPanel>
+
             <!-- Playback -->
-            <TextBlock Text="Playback" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,4,0,8" />
+            <TextBlock Text="Playback" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,4,0,8" Tag="section" />
             <Border Style="{StaticResource SettingsCard}">
                 <StackPanel>
                     <Grid Style="{StaticResource SettingsRow}">
@@ -58,9 +103,7 @@
                         <ToggleSwitch
                             x:Name="AutoplaySwitch"
                             Grid.Column="1"
-                            VerticalAlignment="Center"
-                            OffContent=" "
-                            OnContent=" "
+                            Style="{StaticResource SettingsToggle}"
                             AutomationProperties.Name="Autoplay"
                             Toggled="OnAutoplayToggled" />
                     </Grid>
@@ -81,9 +124,7 @@
                         <ToggleSwitch
                             x:Name="NormalizeSwitch"
                             Grid.Column="1"
-                            VerticalAlignment="Center"
-                            OffContent=" "
-                            OnContent=" "
+                            Style="{StaticResource SettingsToggle}"
                             AutomationProperties.Name="Normalize volume"
                             Toggled="OnNormalizeToggled" />
                     </Grid>
@@ -104,9 +145,7 @@
                         <ToggleSwitch
                             x:Name="SkipButtonsSwitch"
                             Grid.Column="1"
-                            VerticalAlignment="Center"
-                            OffContent=" "
-                            OnContent=" "
+                            Style="{StaticResource SettingsToggle}"
                             AutomationProperties.Name="Skip buttons"
                             Toggled="OnSkipButtonsToggled" />
                     </Grid>
@@ -149,9 +188,7 @@
                         <ToggleSwitch
                             x:Name="CloseToTraySwitch"
                             Grid.Column="1"
-                            VerticalAlignment="Center"
-                            OffContent=" "
-                            OnContent=" "
+                            Style="{StaticResource SettingsToggle}"
                             AutomationProperties.Name="Close to the tray"
                             Toggled="OnCloseToTrayToggled" />
                     </Grid>
@@ -159,7 +196,7 @@
             </Border>
 
             <!-- Crossfade -->
-            <TextBlock Text="Crossfade" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <TextBlock Text="Crossfade" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" Tag="section" />
             <Border Style="{StaticResource SettingsCard}">
                 <StackPanel>
                     <Grid Style="{StaticResource SettingsRow}">
@@ -178,9 +215,7 @@
                         <ToggleSwitch
                             x:Name="CrossfadeSwitch"
                             Grid.Column="1"
-                            VerticalAlignment="Center"
-                            OffContent=" "
-                            OnContent=" "
+                            Style="{StaticResource SettingsToggle}"
                             AutomationProperties.Name="Crossfade songs"
                             Toggled="OnCrossfadeToggled" />
                     </Grid>
@@ -224,7 +259,7 @@
             </Border>
 
             <!-- Windows -->
-            <TextBlock Text="Windows" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <TextBlock Text="Windows" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" Tag="section" />
             <Border Style="{StaticResource SettingsCard}">
                 <StackPanel>
                     <Grid Style="{StaticResource SettingsRow}">
@@ -243,9 +278,7 @@
                         <ToggleSwitch
                             x:Name="OpenAtLoginSwitch"
                             Grid.Column="1"
-                            VerticalAlignment="Center"
-                            OffContent=" "
-                            OnContent=" "
+                            Style="{StaticResource SettingsToggle}"
                             AutomationProperties.Name="Open at login"
                             Toggled="OnOpenAtLoginToggled" />
                     </Grid>
@@ -287,9 +320,7 @@
                         <ToggleSwitch
                             x:Name="NotificationsSwitch"
                             Grid.Column="1"
-                            VerticalAlignment="Center"
-                            OffContent=" "
-                            OnContent=" "
+                            Style="{StaticResource SettingsToggle}"
                             AutomationProperties.Name="Song notifications"
                             Toggled="OnNotificationsToggled" />
                     </Grid>
@@ -323,7 +354,7 @@
             </Border>
 
             <!-- Lyrics -->
-            <TextBlock Text="Lyrics" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <TextBlock Text="Lyrics" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" Tag="section" />
             <Border Style="{StaticResource SettingsCard}">
                 <StackPanel>
                     <Grid Style="{StaticResource SettingsRow}">
@@ -377,9 +408,7 @@
                         <ToggleSwitch
                             x:Name="WordMotionSwitch"
                             Grid.Column="1"
-                            VerticalAlignment="Center"
-                            OffContent=" "
-                            OnContent=" "
+                            Style="{StaticResource SettingsToggle}"
                             AutomationProperties.Name="Word motion"
                             Toggled="OnWordMotionToggled" />
                     </Grid>
@@ -400,9 +429,7 @@
                         <ToggleSwitch
                             x:Name="BackingVocalsSwitch"
                             Grid.Column="1"
-                            VerticalAlignment="Center"
-                            OffContent=" "
-                            OnContent=" "
+                            Style="{StaticResource SettingsToggle}"
                             AutomationProperties.Name="Backing vocals"
                             Toggled="OnBackingVocalsToggled" />
                     </Grid>
@@ -423,9 +450,7 @@
                         <ToggleSwitch
                             x:Name="DuetSidesSwitch"
                             Grid.Column="1"
-                            VerticalAlignment="Center"
-                            OffContent=" "
-                            OnContent=" "
+                            Style="{StaticResource SettingsToggle}"
                             AutomationProperties.Name="Duet sides"
                             Toggled="OnDuetSidesToggled" />
                     </Grid>
@@ -433,7 +458,7 @@
             </Border>
 
             <!-- Lyrics sources -->
-            <TextBlock Text="Lyrics sources" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <TextBlock Text="Lyrics sources" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" Tag="section" />
             <Border Style="{StaticResource SettingsCard}">
                 <StackPanel>
                     <TextBlock
@@ -458,9 +483,7 @@
                         <ToggleSwitch
                             x:Name="YouLyPlusSwitch"
                             Grid.Column="1"
-                            VerticalAlignment="Center"
-                            OffContent=" "
-                            OnContent=" "
+                            Style="{StaticResource SettingsToggle}"
                             AutomationProperties.Name="YouLyPlus"
                             Toggled="OnSourceToggled" />
                     </Grid>
@@ -481,9 +504,7 @@
                         <ToggleSwitch
                             x:Name="BetterLyricsSwitch"
                             Grid.Column="1"
-                            VerticalAlignment="Center"
-                            OffContent=" "
-                            OnContent=" "
+                            Style="{StaticResource SettingsToggle}"
                             AutomationProperties.Name="BetterLyrics"
                             Toggled="OnSourceToggled" />
                     </Grid>
@@ -504,9 +525,7 @@
                         <ToggleSwitch
                             x:Name="LrclibSwitch"
                             Grid.Column="1"
-                            VerticalAlignment="Center"
-                            OffContent=" "
-                            OnContent=" "
+                            Style="{StaticResource SettingsToggle}"
                             AutomationProperties.Name="LRCLIB"
                             Toggled="OnSourceToggled" />
                     </Grid>
@@ -530,7 +549,7 @@
             </Border>
 
             <!-- Appearance -->
-            <TextBlock Text="Appearance" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <TextBlock Text="Appearance" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" Tag="section" />
             <Border Style="{StaticResource SettingsCard}">
                 <StackPanel>
                     <Grid Style="{StaticResource SettingsRow}">
@@ -571,9 +590,7 @@
                         <ToggleSwitch
                             x:Name="AnimatedBackgroundSwitch"
                             Grid.Column="1"
-                            VerticalAlignment="Center"
-                            OffContent=" "
-                            OnContent=" "
+                            Style="{StaticResource SettingsToggle}"
                             AutomationProperties.Name="Moving player colours"
                             Toggled="OnAnimatedBackgroundToggled" />
                     </Grid>
@@ -581,7 +598,7 @@
             </Border>
 
             <!-- Privacy -->
-            <TextBlock Text="Privacy" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <TextBlock Text="Privacy" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" Tag="section" />
             <Border Style="{StaticResource SettingsCard}">
                 <StackPanel>
                     <Grid Style="{StaticResource SettingsRow}">
@@ -600,9 +617,7 @@
                         <ToggleSwitch
                             x:Name="KeepHistorySwitch"
                             Grid.Column="1"
-                            VerticalAlignment="Center"
-                            OffContent=" "
-                            OnContent=" "
+                            Style="{StaticResource SettingsToggle}"
                             AutomationProperties.Name="Save listening history"
                             Toggled="OnKeepHistoryToggled" />
                     </Grid>
@@ -623,9 +638,7 @@
                         <ToggleSwitch
                             x:Name="KeepSearchHistorySwitch"
                             Grid.Column="1"
-                            VerticalAlignment="Center"
-                            OffContent=" "
-                            OnContent=" "
+                            Style="{StaticResource SettingsToggle}"
                             AutomationProperties.Name="Save search history"
                             Toggled="OnKeepSearchHistoryToggled" />
                     </Grid>
@@ -681,7 +694,7 @@
             </Border>
 
             <!-- Suggest less -->
-            <TextBlock Text="Suggest less" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <TextBlock Text="Suggest less" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" Tag="section" />
             <Border Style="{StaticResource SettingsCard}">
                 <StackPanel>
                     <TextBlock
@@ -694,8 +707,76 @@
                 </StackPanel>
             </Border>
 
+            <!-- YouTube Music -->
+            <TextBlock Text="YouTube Music" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" Tag="section" />
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel>
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock x:Name="YouTubeTitle" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                x:Name="YouTubeText"
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <Button x:Name="YouTubeSyncButton" Content="Sync now" Click="OnYouTubeSyncClick" />
+                            <Button x:Name="YouTubeButton" Click="OnYouTubeClick" />
+                            <Button x:Name="YouTubeSignOutButton" Content="Sign out…" Click="OnYouTubeSignOutClick" />
+                        </StackPanel>
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Sync your library" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Likes, saved albums, playlists and artists come from the account, and changes here go back to it. Off, the library stays on this PC."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            x:Name="YouTubeLibrarySwitch"
+                            Grid.Column="1"
+                            Style="{StaticResource SettingsToggle}"
+                            AutomationProperties.Name="Sync your library with YouTube Music"
+                            Toggled="OnYouTubeLibraryToggled" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Add plays to YouTube history" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Songs played for 15 seconds appear in your YouTube Music history and shape its recommendations. Nothing is sent while listening history is off."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            x:Name="YouTubePlaysSwitch"
+                            Grid.Column="1"
+                            Style="{StaticResource SettingsToggle}"
+                            AutomationProperties.Name="Add plays to YouTube history"
+                            Toggled="OnYouTubePlaysToggled" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
             <!-- Last.fm -->
-            <TextBlock Text="Last.fm" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <TextBlock Text="Last.fm" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" Tag="section" />
             <Border Style="{StaticResource SettingsCard}">
                 <Grid Style="{StaticResource SettingsRow}">
                     <Grid.ColumnDefinitions>
@@ -715,7 +796,7 @@
             </Border>
 
             <!-- Discord -->
-            <TextBlock Text="Discord" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <TextBlock Text="Discord" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" Tag="section" />
             <Border Style="{StaticResource SettingsCard}">
                 <Grid Style="{StaticResource SettingsRow}">
                     <Grid.ColumnDefinitions>
@@ -733,16 +814,14 @@
                     <ToggleSwitch
                         x:Name="DiscordSwitch"
                         Grid.Column="1"
-                        VerticalAlignment="Center"
-                        OffContent=" "
-                        OnContent=" "
+                        Style="{StaticResource SettingsToggle}"
                         AutomationProperties.Name="Show what you're playing on Discord"
                         Toggled="OnDiscordToggled" />
                 </Grid>
             </Border>
 
             <!-- Downloads -->
-            <TextBlock Text="Downloads" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <TextBlock Text="Downloads" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" Tag="section" />
             <Border Style="{StaticResource SettingsCard}">
                 <Grid Style="{StaticResource SettingsRow}">
                     <Grid.ColumnDefinitions>
@@ -765,7 +844,7 @@
             </Border>
 
             <!-- Listening cache -->
-            <TextBlock Text="Listening cache" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <TextBlock Text="Listening cache" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" Tag="section" />
             <Border Style="{StaticResource SettingsCard}">
                 <StackPanel>
                     <Grid Style="{StaticResource SettingsRow}">
@@ -809,7 +888,7 @@
             </Border>
 
             <!-- Backup -->
-            <TextBlock Text="Backup" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <TextBlock Text="Backup" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" Tag="section" />
             <Border Style="{StaticResource SettingsCard}">
                 <StackPanel>
                     <Grid Style="{StaticResource SettingsRow}">
@@ -879,7 +958,7 @@
             </Border>
 
             <!-- About -->
-            <TextBlock Text="About" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" />
+            <TextBlock Text="About" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" Tag="section" />
             <Border Style="{StaticResource SettingsCard}">
                 <StackPanel>
                     <Grid Style="{StaticResource SettingsRow}">

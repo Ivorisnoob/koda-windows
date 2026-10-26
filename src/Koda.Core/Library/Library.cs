@@ -256,6 +256,39 @@ public sealed class Library
         else list.Insert(0, item);
     }
 
+    /// <summary>
+    /// Bring in what a signed-in account holds, without telling <see cref="Changed"/>: it came from
+    /// there. What the account has and the library lacks is added in the account's order ahead of
+    /// the rest; nothing here is removed, so a like made offline and not yet sent isn't lost.
+    /// </summary>
+    public void MergeAccount(IReadOnlyList<Song> liked, IReadOnlyList<AlbumSummary> albums,
+        IReadOnlyList<PlaylistSummary> playlists, IReadOnlyList<ArtistSummary> artists) => EditQuietly(s =>
+    {
+        s.Liked = Merged(liked, s.Liked, song => song.Id);
+        s.Albums = Merged(albums, s.Albums, album => album.Id);
+        s.Playlists = Merged(playlists, s.Playlists, playlist => playlist.Id);
+        s.Artists = Merged(artists, s.Artists, artist => artist.Id);
+    });
+
+    /// <summary>Remove what the account no longer holds, after <see cref="MergeAccount"/>, when the
+    /// library mirrors the account: likes and saves undone on another device go here too.</summary>
+    public void DropMissing(IReadOnlySet<string>? liked, IReadOnlySet<string>? albums,
+        IReadOnlySet<string>? playlists, IReadOnlySet<string>? artists) => EditQuietly(s =>
+    {
+        if (liked is not null) s.Liked.RemoveAll(song => !liked.Contains(song.Id));
+        if (albums is not null) s.Albums.RemoveAll(album => !albums.Contains(album.Id));
+        if (playlists is not null) s.Playlists.RemoveAll(playlist => !playlists.Contains(playlist.Id));
+        if (artists is not null) s.Artists.RemoveAll(artist => !artists.Contains(artist.Id));
+    });
+
+    private static List<T> Merged<T>(IReadOnlyList<T> incoming, List<T> list, Func<T, string> id)
+    {
+        var known = list.Select(id).ToHashSet(StringComparer.Ordinal);
+        var result = incoming.Where(item => !known.Contains(id(item))).ToList();
+        result.AddRange(list);
+        return result;
+    }
+
     // MARK: Playlists made here
 
     public UserPlaylist? UserPlaylist(Guid id) { lock (_lock) return _s.UserPlaylists.Find(p => p.Id == id); }
@@ -574,23 +607,10 @@ public sealed class Library
 
     private void Edit(Action<Snapshot> change)
     {
-        string? text = null;
         lock (_lock)
         {
             change(_s);
-            _hasUnsavedListening = false;
-            if (_file is not null)
-            {
-                try
-                {
-                    text = JsonSerializer.Serialize(_s, Options);
-                }
-                catch (Exception)
-                {
-                    text = null;
-                }
-            }
-            if (text is not null) WriteAtomically(text);
+            SaveLocked();
         }
         // Each listener on its own: one that throws (a page torn down mid-call) must not keep
         // the change from the others, such as the player bar's like button.
@@ -605,6 +625,33 @@ public sealed class Library
                 // A listener that throws must not undo the change or silence the rest.
             }
         }
+    }
+
+    /// <summary>A change that came from the account, not the listener: saved, but not announced.</summary>
+    private void EditQuietly(Action<Snapshot> change)
+    {
+        lock (_lock)
+        {
+            change(_s);
+            SaveLocked();
+        }
+    }
+
+    /// <summary>Write the library under the lock; called by every change.</summary>
+    private void SaveLocked()
+    {
+        _hasUnsavedListening = false;
+        if (_file is null) return;
+        string? text = null;
+        try
+        {
+            text = JsonSerializer.Serialize(_s, Options);
+        }
+        catch (Exception)
+        {
+            text = null;
+        }
+        if (text is not null) WriteAtomically(text);
     }
 
     private void WriteAtomically(string text)

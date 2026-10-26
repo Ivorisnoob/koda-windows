@@ -9,6 +9,8 @@ using Koda.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Documents;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using Windows.Storage.Pickers;
 
@@ -17,19 +19,26 @@ namespace Koda.Pages;
 /// <summary>
 /// The settings, in the groups the Mac's settings page uses: what plays,
 /// where the lyrics come from, how they look, what is remembered, what is kept on disk,
-/// and what this is.
+/// what is connected, and what this is.
 ///
 /// Every control here is wired to something that works: there is no switch that
-/// pretends. The ones the family has and Windows has not yet (profiles and sign-in,
-/// Discord, videos) are not here until they are.
+/// pretends. The ones the family has and Windows has not yet (profiles, videos)
+/// are not here until they are.
 /// </summary>
 public sealed partial class SettingsPage : Page
 {
+    private readonly Style _cardStyle;
+    private readonly Style _rowStyle;
+    private readonly Style _dividerStyle;
     private bool _loaded;
+    private Brush? _highlightBrush;
 
     public SettingsPage()
     {
         InitializeComponent();
+        _cardStyle = (Style)Resources["SettingsCard"];
+        _rowStyle = (Style)Resources["SettingsRow"];
+        _dividerStyle = (Style)Resources["SettingsDivider"];
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
@@ -41,6 +50,7 @@ public sealed partial class SettingsPage : Page
         App.Downloads.Changed += OnDownloadsChanged;
         App.LastFm.Changed += OnLastFmChanged;
         App.Discord.Changed += OnDiscordChanged;
+        App.Account.Changed += OnAccountChanged;
     }
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)
@@ -51,9 +61,12 @@ public sealed partial class SettingsPage : Page
         App.Downloads.Changed -= OnDownloadsChanged;
         App.LastFm.Changed -= OnLastFmChanged;
         App.Discord.Changed -= OnDiscordChanged;
+        App.Account.Changed -= OnAccountChanged;
     }
 
     private void OnDiscordChanged() => DispatcherQueue.TryEnqueue(RefreshDiscord);
+
+    private void OnAccountChanged() => DispatcherQueue.TryEnqueue(RefreshYouTube);
 
     private void OnLibraryChanged() => DispatcherQueue.TryEnqueue(RefreshSuggestLess);
 
@@ -98,6 +111,8 @@ public sealed partial class SettingsPage : Page
         AnimatedBackgroundSwitch.IsOn = settings.AnimatesPlayerBackground;
         KeepHistorySwitch.IsOn = settings.SavesListeningHistory;
         KeepSearchHistorySwitch.IsOn = settings.SavesSearchHistory;
+        YouTubeLibrarySwitch.IsOn = settings.SyncsYouTubeLibrary;
+        YouTubePlaysSwitch.IsOn = settings.SendsPlaysToYouTube;
 
         LyricsSizeSlider.Value = settings.LyricsFontSize;
         LyricsSizeValue.Text = $"{settings.LyricsFontSize:F0}";
@@ -131,7 +146,405 @@ public sealed partial class SettingsPage : Page
         RefreshSuggestLess();
         RefreshLastFm();
         RefreshDiscord();
+        RefreshYouTube();
+        ApplySettingsSearch();
     }
+
+    // MARK: search
+
+    private void OnSettingsSearchChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (SettingsRoot is null)
+        {
+            return;
+        }
+
+        ApplySettingsSearch();
+        // Results start at the top, the way Windows Settings search does, instead of
+        // leaving the page wherever it happened to be scrolled.
+        SettingsScroll?.ChangeView(null, 0, null, true);
+    }
+
+    private void OnClearSettingsSearchClick(object sender, RoutedEventArgs e)
+    {
+        SettingsSearch.Text = "";
+        ApplySettingsSearch();
+        SettingsSearch.Focus(FocusState.Programmatic);
+    }
+
+    /// <summary>
+    /// Filters the page the way Windows Settings does: a row stays when its title or
+    /// description matches, a section whose title matches keeps all its rows, and the
+    /// matching letters are highlighted. Cards and dividers close up around the rest.
+    /// </summary>
+    private void ApplySettingsSearch()
+    {
+        // The box can raise TextChanged while the page is still being built.
+        if (_cardStyle is null)
+        {
+            return;
+        }
+
+        var query = SettingsSearch.Text?.Trim() ?? "";
+        ClearHighlights(SettingsRoot);
+
+        if (query.Length == 0)
+        {
+            foreach (var section in IndexSections())
+            {
+                section.Header.Visibility = Visibility.Visible;
+                section.Card.Visibility = Visibility.Visible;
+                foreach (var row in section.Rows)
+                {
+                    row.Visibility = Visibility.Visible;
+                }
+
+                UpdateDividers(section.Card);
+            }
+
+            NoResults.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var found = false;
+        foreach (var section in IndexSections())
+        {
+            var headerMatch = FuzzySearch.Match(section.Header.Text, query) is not null;
+            var noteMatch = section.Notes.Exists(note => FuzzySearch.Match(note.Text, query) is not null);
+            var wholeSection = headerMatch || noteMatch;
+            var anyRow = false;
+            foreach (var row in section.Rows)
+            {
+                var visible = wholeSection || RowMatches(row, query);
+                row.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+                anyRow |= visible;
+            }
+
+            UpdateDividers(section.Card);
+            var visibleSection = anyRow || (wholeSection && section.Rows.Count == 0);
+            section.Header.Visibility = visibleSection ? Visibility.Visible : Visibility.Collapsed;
+            section.Card.Visibility = visibleSection ? Visibility.Visible : Visibility.Collapsed;
+            found |= visibleSection;
+
+            if (!visibleSection)
+            {
+                continue;
+            }
+
+            if (headerMatch)
+            {
+                Highlight(section.Header, query);
+            }
+
+            foreach (var note in section.Notes)
+            {
+                Highlight(note, query);
+            }
+
+            foreach (var row in section.Rows)
+            {
+                if (row.Visibility == Visibility.Visible)
+                {
+                    HighlightRow(row, query);
+                }
+            }
+        }
+
+        NoResults.Visibility = found ? Visibility.Collapsed : Visibility.Visible;
+        if (!found)
+        {
+            NoResultsTitle.Text = $"No results for \u201c{query}\u201d";
+        }
+    }
+
+    /// <summary>The page's sections, in the order the XAML declares them.</summary>
+    private List<SectionIndex> IndexSections()
+    {
+        var sections = new List<SectionIndex>();
+        TextBlock? header = null;
+        foreach (var child in SettingsRoot.Children)
+        {
+            if (child is TextBlock { Tag: "section" } title)
+            {
+                header = title;
+                continue;
+            }
+
+            if (header is null || child is not Border card || card.Style != _cardStyle)
+            {
+                continue;
+            }
+
+            var rows = new List<Grid>();
+            var notes = new List<TextBlock>();
+            CollectRows(card, rows, notes);
+            sections.Add(new SectionIndex(header, card, rows, notes));
+            header = null;
+        }
+
+        return sections;
+    }
+
+    /// <summary>Rows are the grids the page uses for a setting; a card's other text
+    /// (the Suggest less note, for instance) is kept so it can match the whole card.</summary>
+    private void CollectRows(DependencyObject node, List<Grid> rows, List<TextBlock> notes)
+    {
+        if (node is Grid grid && IsRow(grid))
+        {
+            rows.Add(grid);
+            return;
+        }
+
+        if (node is TextBlock text)
+        {
+            if (!string.IsNullOrWhiteSpace(text.Text))
+            {
+                notes.Add(text);
+            }
+
+            return;
+        }
+
+        if (node is Panel panel)
+        {
+            foreach (var child in panel.Children)
+            {
+                CollectRows(child, rows, notes);
+            }
+
+            return;
+        }
+
+        if (node is Border border && border.Child is { } content)
+        {
+            CollectRows(content, rows, notes);
+        }
+    }
+
+    /// <summary>A divider is only shown when there are visible rows on both sides of it,
+    /// so a card closes up cleanly when its rows are filtered out.</summary>
+    private void UpdateDividers(DependencyObject node)
+    {
+        if (node is Grid grid && IsRow(grid))
+        {
+            return;
+        }
+
+        if (node is Panel panel)
+        {
+            for (var i = 0; i < panel.Children.Count; i++)
+            {
+                if (panel.Children[i] is not Border divider || !IsDivider(divider))
+                {
+                    continue;
+                }
+
+                var before = NeighborRow(panel, i, -1);
+                var after = NeighborRow(panel, i, 1);
+                var beforeShown = before is null || before.Visibility == Visibility.Visible;
+                var afterShown = after is null || after.Visibility == Visibility.Visible;
+                divider.Visibility = beforeShown && afterShown && (before is not null || after is not null)
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+
+            foreach (var child in panel.Children)
+            {
+                UpdateDividers(child);
+            }
+
+            return;
+        }
+
+        if (node is Border border && border.Child is { } content)
+        {
+            UpdateDividers(content);
+        }
+    }
+
+    private Grid? NeighborRow(Panel panel, int index, int direction)
+    {
+        for (var i = index + direction; i >= 0 && i < panel.Children.Count; i += direction)
+        {
+            if (panel.Children[i] is Grid row && IsRow(row))
+            {
+                return row;
+            }
+        }
+
+        return null;
+    }
+
+    private bool IsRow(Grid row) => row.Style == _rowStyle;
+
+    private bool IsDivider(Border divider) => divider.Style == _dividerStyle;
+
+    private static bool RowMatches(Grid row, string query)
+    {
+        var blocks = new List<TextBlock>();
+        var pieces = new List<string>();
+        CollectRowText(row, blocks, pieces);
+        return FuzzySearch.Match(string.Join("\n", pieces), query) is not null;
+    }
+
+    /// <summary>The text a row shows: its labels and descriptions, plus a button's label
+    /// and the chosen value of a combo. Control templates are not walked, so a switch's
+    /// internal "On"/"Off" text never matches.</summary>
+    private static void CollectRowText(DependencyObject node, List<TextBlock> blocks, List<string> pieces)
+    {
+        if (node is TextBlock text)
+        {
+            blocks.Add(text);
+            if (!string.IsNullOrWhiteSpace(text.Text))
+            {
+                pieces.Add(text.Text);
+            }
+
+            return;
+        }
+
+        if (node is ButtonBase button)
+        {
+            if (button.Content is string label && !string.IsNullOrWhiteSpace(label))
+            {
+                pieces.Add(label);
+            }
+
+            return;
+        }
+
+        if (node is ComboBox combo)
+        {
+            if (combo.SelectedItem is string selected && !string.IsNullOrWhiteSpace(selected))
+            {
+                pieces.Add(selected);
+            }
+
+            return;
+        }
+
+        if (node is Control)
+        {
+            return;
+        }
+
+        if (node is Panel panel)
+        {
+            foreach (var child in panel.Children)
+            {
+                CollectRowText(child, blocks, pieces);
+            }
+
+            return;
+        }
+
+        if (node is Border border && border.Child is { } content)
+        {
+            CollectRowText(content, blocks, pieces);
+        }
+    }
+
+    private void HighlightRow(Grid row, string query)
+    {
+        var blocks = new List<TextBlock>();
+        var pieces = new List<string>();
+        CollectRowText(row, blocks, pieces);
+        foreach (var block in blocks)
+        {
+            Highlight(block, query);
+        }
+    }
+
+    private void Highlight(TextBlock block, string query)
+    {
+        block.TextHighlighters.Clear();
+        var ranges = RangesFor(block.Text, query);
+        if (ranges.Count == 0)
+        {
+            return;
+        }
+
+        var highlighter = new TextHighlighter { Background = HighlightBrush() };
+        foreach (var range in ranges)
+        {
+            highlighter.Ranges.Add(new TextRange
+            {
+                StartIndex = range.Start,
+                Length = range.Length,
+            });
+        }
+
+        block.TextHighlighters.Add(highlighter);
+    }
+
+    /// <summary>Each word is highlighted where it matches, even when the other words in
+    /// the query matched a different part of the row.</summary>
+    private static List<SearchRange> RangesFor(string? text, string query)
+    {
+        var ranges = new List<SearchRange>();
+        if (string.IsNullOrEmpty(text))
+        {
+            return ranges;
+        }
+
+        foreach (var word in query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (FuzzySearch.Match(text, word) is { } match)
+            {
+                ranges.AddRange(match.Ranges);
+            }
+        }
+
+        ranges.Sort((left, right) => left.Start.CompareTo(right.Start));
+        var merged = new List<SearchRange>(ranges.Count);
+        foreach (var range in ranges)
+        {
+            if (merged.Count > 0 && range.Start <= merged[^1].Start + merged[^1].Length)
+            {
+                var last = merged[^1];
+                merged[^1] = last with
+                {
+                    Length = Math.Max(last.Start + last.Length, range.Start + range.Length) - last.Start,
+                };
+            }
+            else
+            {
+                merged.Add(range);
+            }
+        }
+
+        return merged;
+    }
+
+    private Brush HighlightBrush()
+    {
+        if (_highlightBrush is not null)
+        {
+            return _highlightBrush;
+        }
+
+        var accent = Application.Current.Resources["SystemAccentColor"] is Windows.UI.Color color
+            ? color
+            : Windows.UI.Color.FromArgb(0xFF, 0x00, 0x78, 0xD4);
+        _highlightBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(0x4D, accent.R, accent.G, accent.B));
+        return _highlightBrush;
+    }
+
+    private static void ClearHighlights(DependencyObject node)
+    {
+        if (node is TextBlock block)
+        {
+            block.TextHighlighters.Clear();
+        }
+
+        var count = VisualTreeHelper.GetChildrenCount(node);
+        for (var i = 0; i < count; i++)
+        {
+            ClearHighlights(VisualTreeHelper.GetChild(node, i));
+        }
+    }
+
+    private sealed record SectionIndex(TextBlock Header, Border Card, List<Grid> Rows, List<TextBlock> Notes);
 
     private static string ThemeLabel(Theme theme) => theme switch
     {
@@ -188,8 +601,11 @@ public sealed partial class SettingsPage : Page
 
     private void OnEnergySaverChanged() => RefreshEnergySaver();
 
-    private void RefreshEnergySaver() =>
+    private void RefreshEnergySaver()
+    {
         EnergySaverText.Text = EnergySaver.IsOn ? "On" : "Off";
+        ApplySettingsSearch();
+    }
 
     private void OnEnergySaverSettingsClick(object sender, RoutedEventArgs e)
     {
@@ -355,6 +771,7 @@ public sealed partial class SettingsPage : Page
     {
         var limit = (long)App.Settings.CacheLimit;
         CacheSizeText.Text = $"{Size(App.AudioStore.CacheBytes)} of {Size(limit)} used.";
+        ApplySettingsSearch();
     }
 
     // MARK: suggest less
@@ -376,6 +793,8 @@ public sealed partial class SettingsPage : Page
         {
             AddSuggestLessRow(song.Title, song.ArtistLine, () => App.Library.Unhide(song));
         }
+
+        ApplySettingsSearch();
     }
 
     private void AddSuggestLessRow(string title, string detail, Action again)
@@ -407,6 +826,81 @@ public sealed partial class SettingsPage : Page
         SuggestLessList.Children.Add(row);
     }
 
+    // MARK: youtube music
+
+    /// <summary>Who is signed in, what the account is doing, and the one action that fits:
+    /// sign in, sync, or sign in again after YouTube ended the session.</summary>
+    private void RefreshYouTube()
+    {
+        var account = App.Account;
+        var signedIn = account.IsSignedIn;
+        var expired = account.IsExpired;
+
+        YouTubeLibrarySwitch.IsEnabled = signedIn;
+        YouTubePlaysSwitch.IsEnabled = signedIn;
+        YouTubeSignOutButton.Visibility = signedIn ? Visibility.Visible : Visibility.Collapsed;
+        YouTubeButton.Visibility = !signedIn || expired ? Visibility.Visible : Visibility.Collapsed;
+        YouTubeButton.Content = signedIn ? "Sign in again…" : "Sign in…";
+        YouTubeSyncButton.Visibility = signedIn && !expired && App.Settings.SyncsYouTubeLibrary
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        YouTubeSyncButton.IsEnabled = !account.IsSyncing;
+
+        if (!signedIn)
+        {
+            YouTubeTitle.Text = "Not signed in";
+            YouTubeText.Text = "Sign in to bring your likes, saved albums, playlists and artists to Koda. Everything already here stays.";
+            ApplySettingsSearch();
+            return;
+        }
+
+        YouTubeTitle.Text = account.Info?.Handle ?? account.Info?.Name ?? "Signed in";
+        YouTubeText.Text = expired
+            ? "YouTube signed this session out. Sign in again to keep the library in step."
+            : account.IsSyncing
+                ? "Bringing in your library…"
+                : !App.Settings.SyncsYouTubeLibrary
+                    ? "Signed in. Library sync is off, so likes and saves stay on this PC."
+                    : "Signed in. Your likes, saved albums, playlists and artists stay in step with YouTube Music.";
+        ApplySettingsSearch();
+    }
+
+    private async void OnYouTubeClick(object sender, RoutedEventArgs e)
+    {
+        await YouTubeSignInDialog.ShowSignInAsync();
+    }
+
+    private async void OnYouTubeSyncClick(object sender, RoutedEventArgs e)
+    {
+        await App.Account.SyncAsync(force: true);
+        RefreshYouTube();
+    }
+
+    private async void OnYouTubeSignOutClick(object sender, RoutedEventArgs e)
+    {
+        if (await Dialogs.ConfirmAsync(
+                "Sign out of YouTube Music?",
+                "The library stays on this PC with its likes, playlists and history. Your YouTube Music account isn't affected.",
+                "Sign Out"))
+        {
+            App.Account.SignOut();
+            Notice("Signed out of YouTube Music. The library is still here.");
+        }
+    }
+
+    private void OnYouTubeLibraryToggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded || YouTubeLibrarySwitch.IsOn == App.Settings.SyncsYouTubeLibrary) return;
+        App.Settings.Update(s => s.SyncsYouTubeLibrary = YouTubeLibrarySwitch.IsOn);
+        RefreshYouTube();
+    }
+
+    private void OnYouTubePlaysToggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded || YouTubePlaysSwitch.IsOn == App.Settings.SendsPlaysToYouTube) return;
+        App.Settings.Update(s => s.SendsPlaysToYouTube = YouTubePlaysSwitch.IsOn);
+    }
+
     // MARK: last.fm
 
     private void RefreshLastFm()
@@ -416,6 +910,7 @@ public sealed partial class SettingsPage : Page
             ? lastFm.IsEnabled ? $"Connected as {lastFm.User}" : $"Connected as {lastFm.User}, scrobbling off"
             : "Not connected";
         LastFmButton.Content = lastFm.IsConnected ? "Open" : "Connect…";
+        ApplySettingsSearch();
     }
 
     private void OnLastFmClick(object sender, RoutedEventArgs e) => Navigator.Go(typeof(LastFmPage));
@@ -438,6 +933,7 @@ public sealed partial class SettingsPage : Page
                     Koda.Core.Discord.DiscordPresence.Phase.Refused => "Discord didn\u2019t accept this song\u2019s card.",
                     _ => "Shows the next song you play.",
                 };
+        ApplySettingsSearch();
     }
 
     private void OnDiscordToggled(object sender, RoutedEventArgs e)
@@ -456,6 +952,7 @@ public sealed partial class SettingsPage : Page
             ? "Downloaded songs play without a connection and stay until you remove them."
             : $"{Format.Songs(count)} · {Format.Bytes(App.Downloads.Bytes)}. They play without a connection and stay until you remove them.";
         RemoveDownloadsButton.IsEnabled = count > 0;
+        ApplySettingsSearch();
     }
 
     private void OnShowDownloadsClick(object sender, RoutedEventArgs e) => Navigator.Go(typeof(SongsPage), "downloads");

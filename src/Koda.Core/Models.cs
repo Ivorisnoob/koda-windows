@@ -46,6 +46,8 @@ public class MusicException : Exception
         Unplayable,
         /// <summary>The bot check refused even a fresh identity.</summary>
         BotCheck,
+        /// <summary>An account call with no session, or one YouTube answered as signed out.</summary>
+        SignedOut,
         /// <summary>YouTube is throttling this client; try later.</summary>
         RateLimited,
     }
@@ -57,6 +59,7 @@ public class MusicException : Exception
     public static MusicException BadResponse(int status) => new(Reason.BadResponse, $"HTTP {status}", status);
     public static MusicException Unplayable(string? reason) => new(Reason.Unplayable, reason);
     public static MusicException BotCheck() => new(Reason.BotCheck, null);
+    public static MusicException SignedOut() => new(Reason.SignedOut, null);
     public static MusicException RateLimited() => new(Reason.RateLimited, null);
 }
 

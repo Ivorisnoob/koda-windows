@@ -44,7 +44,7 @@
             </ItemsControl>
             <TextBlock
                 x:Name="Hint"
-                Text="Find songs, albums, artists and playlists from YouTube Music. Press Ctrl+F from anywhere."
+                Text="Find songs, albums, artists and playlists from YouTube Music, or paste a link to open it. Press Ctrl+F from anywhere."
                 Style="{ThemeResource BodyTextBlockStyle}"
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 TextWrapping="Wrap" />

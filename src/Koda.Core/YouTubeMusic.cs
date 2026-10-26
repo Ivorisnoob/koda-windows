@@ -11,7 +11,7 @@ namespace Koda.Core;
 /// the audio cache and the Android backup importer are later-phase work;
 /// this phase proves the client layer, search, track parsing and streams.
 /// </summary>
-public sealed class YouTubeMusic : IDisposable
+public sealed partial class YouTubeMusic : IDisposable
 {
     private readonly InnerTubeClient _api;
     private readonly StreamResolver _streams;
@@ -19,22 +19,33 @@ public sealed class YouTubeMusic : IDisposable
     private readonly VisitorIdentity _identity;
     private readonly RateGate _gate;
     private readonly HttpClient _http;
+    private readonly AccountSessions _accounts;
+    private readonly PlayerSignatureTimestamp _signatures;
     private bool _disposed;
 
     public YouTubeMusic(ClientProfiles? clients = null, PageCache? pages = null, RateGate? gate = null,
-        HttpClient? http = null, VisitorIdentity? identity = null, string? visitorStorePath = null)
+        HttpClient? http = null, VisitorIdentity? identity = null, string? visitorStorePath = null,
+        AccountSessions? accounts = null, string? signatureStorePath = null)
     {
         Clients = clients ?? ClientProfiles.Default;
         _http = http ?? NewSessionHttp();
         _identity = identity ?? new VisitorIdentity(Clients, _http, visitorStorePath);
         _identityOwned = identity is null;
         _gate = gate ?? new RateGate();
-        _api = new InnerTubeClient(Clients, _identity, _gate, _http);
+        _accounts = accounts ?? new AccountSessions();
+        _api = new InnerTubeClient(Clients, _identity, _gate, _http, _accounts);
         _streams = new StreamResolver(Clients, _identity, _http);
         _pages = pages ?? new PageCache();
+        _signatures = new PlayerSignatureTimestamp(_http, Clients.BrowserUserAgent, signatureStorePath);
     }
 
     public ClientProfiles Clients { get; }
+
+    /// <summary>The session requests are signed with; the app signs in and out here.</summary>
+    public AccountSessions Accounts => _accounts;
+
+    /// <summary>What history <c>/player</c> calls carry; see PlaybackHistory.cs.</summary>
+    internal PlayerSignatureTimestamp Signatures => _signatures;
 
     /// <summary>The 429 hold shared by every call of this instance; fan-out work checks
     /// <see cref="RateGate.IsHeld"/>, the shell subscribes <see cref="RateGate.Throttled"/>.</summary>
@@ -55,6 +66,11 @@ public sealed class YouTubeMusic : IDisposable
         Timeout = TimeSpan.FromSeconds(20),
     };
 
+    /// <summary>A cached page, kept per session: signed in, pages carry the account's state
+    /// (saved, subscribed), so one session's are never shown to another.</summary>
+    private Task<T> Page<T>(string key, Func<Task<T>> load) =>
+        _pages.Value(_accounts.CacheScope + "|" + key, load);
+
     // MARK: Browse
 
     public async Task<ShelfPage> HomeAsync(string? @params = null, CancellationToken cancellation = default)
@@ -65,13 +81,13 @@ public sealed class YouTubeMusic : IDisposable
     }
 
     public Task<ShelfPage> ExploreAsync(CancellationToken cancellation = default) =>
-        _pages.Value("explore", async () =>
+        Page("explore", async () =>
             Pages.Shelves(await _api.MusicAsync("browse", new JsonObject { ["browseId"] = "FEmusic_explore" }, cancellation)));
 
     /// <summary>YouTube Music's charts for a country by its two-letter code ("ZZ" is global),
     /// or for the region YouTube places the listener in when null.</summary>
     public Task<ShelfPage> ChartsAsync(string? country = null, CancellationToken cancellation = default) =>
-        _pages.Value($"charts|{country}", async () =>
+        Page($"charts|{country}", async () =>
         {
             var payload = new JsonObject { ["browseId"] = "FEmusic_charts" };
             if (country is not null) payload["formData"] = new JsonObject { ["selectedValues"] = new JsonArray(country) };
@@ -102,7 +118,7 @@ public sealed class YouTubeMusic : IDisposable
     }
 
     public Task<ShelfPage> MoodAsync(Mood mood, CancellationToken cancellation = default) =>
-        _pages.Value($"mood|{mood.BrowseId}|{mood.Params}", async () =>
+        Page($"mood|{mood.BrowseId}|{mood.Params}", async () =>
         {
             var payload = new JsonObject { ["browseId"] = mood.BrowseId };
             if (mood.Params is not null) payload["params"] = mood.Params;
@@ -110,7 +126,7 @@ public sealed class YouTubeMusic : IDisposable
         });
 
     public Task<ArtistPage> ArtistAsync(string id, CancellationToken cancellation = default) =>
-        _pages.Value($"artist|{id}", async () =>
+        Page($"artist|{id}", async () =>
             Pages.Artist(await _api.MusicAsync("browse", new JsonObject { ["browseId"] = id }, cancellation), id)
                 ?? throw MusicException.BadResponse(200));
 
@@ -133,7 +149,7 @@ public sealed class YouTubeMusic : IDisposable
     // MARK: Pages
 
     public Task<AlbumPage> AlbumAsync(string id, CancellationToken cancellation = default) =>
-        _pages.Value($"album|{id}", async () => await FetchAlbumAsync(id, cancellation));
+        Page($"album|{id}", async () => await FetchAlbumAsync(id, cancellation));
 
     private async Task<AlbumPage> FetchAlbumAsync(string id, CancellationToken cancellation)
     {
@@ -157,7 +173,7 @@ public sealed class YouTubeMusic : IDisposable
     }
 
     public Task<PlaylistPage> PlaylistAsync(string id, CancellationToken cancellation = default) =>
-        _pages.Value($"playlist|{id}", async () => await FetchPlaylistAsync(id, cancellation));
+        Page($"playlist|{id}", async () => await FetchPlaylistAsync(id, cancellation));
 
     private async Task<PlaylistPage> FetchPlaylistAsync(string id, CancellationToken cancellation)
     {
@@ -236,6 +252,15 @@ public sealed class YouTubeMusic : IDisposable
 
     /// <summary>Forget fetched pages, for a pull to refresh that should really fetch again.</summary>
     public void ClearPageCache() => _pages.RemoveAll();
+
+    /// <summary>A new anonymous identity, for a switch to or from an account. The token is the bot
+    /// check's identity; one account's carried into another's requests is how a session gets flagged
+    /// LOGIN_REQUIRED (Koda for Android drops it on every switch for that reason).</summary>
+    public async Task RenewVisitorIdentityAsync(CancellationToken cancellation = default)
+    {
+        var current = await _identity.CachedAsync();
+        await _identity.ReplaceAsync(current, cancellation);
+    }
 
     public void Dispose()
     {

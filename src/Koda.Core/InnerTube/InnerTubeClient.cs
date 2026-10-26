@@ -1,13 +1,27 @@
 using System.Net;
 using System.Text.Json.Nodes;
+using Koda.Core.Parsing;
 
 namespace Koda.Core.InnerTube;
+
+/// <summary>Whether a call carries the active account: public pages are signed when there is one,
+/// account pages and writes need one.</summary>
+public enum Signing
+{
+    IfSignedIn,
+    Required,
+}
 
 /// <summary>
 /// WEB_REMIX calls on music.youtube.com. Ported from the KodaCore
 /// InnerTube.swift contract: one visitor token per identity, context built
 /// per call, and the same error semantics (non-200 is BadResponse, a body
 /// carrying "error" is Network).
+///
+/// When an <see cref="AccountSessions"/> is supplied, each call is signed with the active session's
+/// cookies, rotated <c>Set-Cookie</c> values are folded back into that session, and YouTube's
+/// <c>logged_in</c> verdict is recorded. HTTP 200 proves nothing about a session: a dead one reads
+/// public pages fine.
 /// </summary>
 public sealed class InnerTubeClient : IDisposable
 {
@@ -16,20 +30,24 @@ public sealed class InnerTubeClient : IDisposable
     private readonly ClientProfiles _clients;
     private readonly VisitorIdentity _identity;
     private readonly RateGate _gate;
+    private readonly AccountSessions? _accounts;
     private bool _disposed;
 
     /// <param name="http">The session shared with the identity and the resolver, as the Swift
     /// port shares one URLSession; a private one when null.</param>
-    public InnerTubeClient(ClientProfiles clients, VisitorIdentity identity, RateGate? gate = null, HttpClient? http = null)
+    public InnerTubeClient(ClientProfiles clients, VisitorIdentity identity, RateGate? gate = null,
+        HttpClient? http = null, AccountSessions? accounts = null)
     {
         _clients = clients;
         _identity = identity;
         _gate = gate ?? new RateGate();
+        _accounts = accounts;
         _ownsHttp = http is null;
         _http = http ?? new HttpClient(new SocketsHttpHandler
         {
             AutomaticDecompression = DecompressionMethods.All,
             MaxConnectionsPerServer = 6,
+            UseCookies = false,
         }) { Timeout = TimeSpan.FromSeconds(20) };
     }
 
@@ -38,8 +56,12 @@ public sealed class InnerTubeClient : IDisposable
     /// context and the header; browse calls that must not wait on a mint use
     /// the cached one first, exactly as the Swift port does.
     /// </summary>
-    public async Task<Json> MusicAsync(string endpoint, JsonObject payload, CancellationToken cancellation = default)
+    public async Task<Json> MusicAsync(string endpoint, JsonObject payload, CancellationToken cancellation = default,
+        Signing signing = Signing.IfSignedIn)
     {
+        var ticket = _accounts?.Ticket();
+        if (signing == Signing.Required && ticket?.Cookies.Sapisid is null) throw MusicException.SignedOut();
+
         var visitor = await _identity.CachedAsync();
         visitor ??= await _identity.CurrentAsync(cancellation);
 
@@ -57,10 +79,17 @@ public sealed class InnerTubeClient : IDisposable
             $"https://music.youtube.com/youtubei/v1/{endpoint}?prettyPrint=false");
         request.Content = new StringContent(payload.ToJsonString(), System.Text.Encoding.UTF8, "application/json");
         request.Headers.TryAddWithoutValidation("User-Agent", _clients.BrowserUserAgent);
-        request.Headers.TryAddWithoutValidation("Origin", "https://music.youtube.com");
+        request.Headers.TryAddWithoutValidation("Origin", SapisidHash.MusicOrigin);
         request.Headers.TryAddWithoutValidation("X-YouTube-Client-Name", _clients.WebRemixClientHeader);
         request.Headers.TryAddWithoutValidation("X-YouTube-Client-Version", _clients.WebRemixVersion);
         if (visitor is not null) request.Headers.TryAddWithoutValidation("X-Goog-Visitor-Id", visitor);
+        if (ticket is not null)
+        {
+            foreach (var (field, value) in SapisidHash.Headers(ticket.Cookies))
+            {
+                request.Headers.TryAddWithoutValidation(field, value);
+            }
+        }
 
         // No local wait here: the listener asked for this call (see RateGate).
         HttpResponseMessage response;
@@ -77,6 +106,8 @@ public sealed class InnerTubeClient : IDisposable
             throw MusicException.Network(e.Message);
         }
 
+        if (ticket is not null) _accounts?.Received(SetCookies(response), ticket);
+
         var status = (int)response.StatusCode;
         if (status != 200)
         {
@@ -85,6 +116,8 @@ public sealed class InnerTubeClient : IDisposable
                 : null;
             response.Dispose();
             if (_gate.Hit(status, retryAfter)) throw MusicException.RateLimited();
+            // A write under a session YouTube no longer honours answers 401 UNAUTHENTICATED.
+            if (status == 401 && (ticket is not null || signing == Signing.Required)) throw MusicException.SignedOut();
             throw MusicException.BadResponse(status);
         }
 
@@ -108,8 +141,67 @@ public sealed class InnerTubeClient : IDisposable
             throw MusicException.Network("unreadable body");
         }
         if (root["error"].Exists) throw MusicException.Network("body carries an error");
+
+        if (ticket is not null && AccountPages.SignedIn(root) is { } signedIn)
+        {
+            _accounts?.Note(signedIn, ticket);
+            if (!signedIn && signing == Signing.Required) throw MusicException.SignedOut();
+        }
         return root;
     }
+
+    /// <summary>
+    /// A signed GET to one of YouTube's tracking URLs (history pings), as the active account.
+    /// Only <see cref="HistoryPing.TrackingUrl"/> builds these, so the cookies go to YouTube's
+    /// hosts alone.
+    /// </summary>
+    public async Task PingAsync(Uri url, string referer, string origin = SapisidHash.MusicOrigin,
+        CancellationToken cancellation = default)
+    {
+        var ticket = _accounts?.Ticket();
+        if (ticket?.Cookies.Sapisid is null) throw MusicException.SignedOut();
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.TryAddWithoutValidation("User-Agent", _clients.BrowserUserAgent);
+        request.Headers.TryAddWithoutValidation("Origin", origin);
+        request.Headers.TryAddWithoutValidation("Referer", referer);
+        foreach (var (field, value) in SapisidHash.Headers(ticket.Cookies, origin))
+        {
+            request.Headers.TryAddWithoutValidation(field, value);
+        }
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.SendAsync(request, cancellation);
+        }
+        catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
+        {
+            throw MusicException.Network("timeout");
+        }
+        catch (Exception e) when (e is HttpRequestException or System.IO.IOException)
+        {
+            throw MusicException.Network(e.Message);
+        }
+
+        using (response)
+        {
+            _accounts?.Received(SetCookies(response), ticket);
+            var status = (int)response.StatusCode;
+            if (status == 429)
+            {
+                var retryAfter = response.Headers.RetryAfter is { } header
+                    ? header.Delta ?? (header.Date is { } date ? date - DateTimeOffset.UtcNow : null)
+                    : null;
+                _gate.Hit(status, retryAfter);
+                throw MusicException.RateLimited();
+            }
+            if (status is < 200 or >= 300) throw MusicException.BadResponse(status);
+        }
+    }
+
+    private static string[] SetCookies(HttpResponseMessage response) =>
+        response.Headers.TryGetValues("Set-Cookie", out var values) ? [.. values] : [];
 
     public void Dispose()
     {

@@ -10,443 +10,489 @@
 
     <Grid x:Name="Root">
         <Grid.RowDefinitions>
-            <RowDefinition Height="48" />
+            <RowDefinition Height="32" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- The title bar is the app's own content over Mica (Windows 11 idiom, like Settings):
-             back, icon and name, the search field centered; caption buttons sit over it. -->
+             back, icon and name, the search field centered; caption buttons sit over it.
+             Its content is laid out at the bar's size divided by the title scale, then
+             scaled back up, so it shrinks with the UI zoom without moving the caption buttons. -->
         <Grid x:Name="AppTitleBar" Grid.Row="0" Background="Transparent">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition x:Name="LeftInset" Width="0" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition x:Name="RightInset" Width="0" />
-            </Grid.ColumnDefinitions>
-
-            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="4" Margin="4,0,0,0">
-                <Button
-                    x:Name="BackButton"
-                    Width="40"
-                    Height="36"
-                    Padding="0"
-                    Background="Transparent"
-                    BorderThickness="0"
-                    IsEnabled="False"
-                    Click="OnBackClick"
-                    ToolTipService.ToolTip="Back"
-                    AutomationProperties.Name="Back">
-                    <FontIcon Glyph="&#xE72B;" FontSize="14" />
-                </Button>
-                <Image Source="ms-appx:///Assets/icon.png" Width="18" Height="18" Margin="4,0,0,0" VerticalAlignment="Center" />
-                <TextBlock
-                    x:Name="AppTitle"
-                    Text="Koda"
-                    Margin="8,0,0,0"
-                    VerticalAlignment="Center"
-                    Style="{ThemeResource CaptionTextBlockStyle}" />
-            </StackPanel>
-
-            <AutoSuggestBox
-                x:Name="TitleSearch"
-                Grid.Column="3"
-                Width="420"
-                VerticalAlignment="Center"
-                PlaceholderText="Search songs, albums, artists"
-                QueryIcon="Find"
-                TextChanged="OnSearchTextChanged"
-                QuerySubmitted="OnSearchSubmitted"
-                SizeChanged="OnTitleBarPartsChanged"
-                AutomationProperties.Name="Search YouTube Music" />
-        </Grid>
-
-        <muxc:NavigationView
-            x:Name="Nav"
-            Grid.Row="1"
-            PaneDisplayMode="Left"
-            OpenPaneLength="264"
-            CompactPaneLength="52"
-            IsBackButtonVisible="Collapsed"
-            IsSettingsVisible="True"
-            IsTitleBarAutoPaddingEnabled="False"
-            ItemInvoked="OnNavItemInvoked">
-            <muxc:NavigationView.MenuItems>
-                <muxc:NavigationViewItem Content="Home" Tag="home" ToolTipService.ToolTip="Home">
-                    <muxc:NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE80F;" />
-                    </muxc:NavigationViewItem.Icon>
-                </muxc:NavigationViewItem>
-                <muxc:NavigationViewItem Content="Browse" Tag="browse" ToolTipService.ToolTip="Browse moods and genres">
-                    <muxc:NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE8A9;" />
-                    </muxc:NavigationViewItem.Icon>
-                </muxc:NavigationViewItem>
-                <muxc:NavigationViewItem x:Name="SearchResultsItem" Content="Search Results" Tag="search" Visibility="Collapsed" ToolTipService.ToolTip="Search results">
-                    <muxc:NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE721;" />
-                    </muxc:NavigationViewItem.Icon>
-                </muxc:NavigationViewItem>
-
-                <muxc:NavigationViewItemHeader Content="Library" />
-                <muxc:NavigationViewItem Content="Recently Played" Tag="recent" ToolTipService.ToolTip="Recently Played">
-                    <muxc:NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE823;" />
-                    </muxc:NavigationViewItem.Icon>
-                </muxc:NavigationViewItem>
-                <muxc:NavigationViewItem Content="History" Tag="history" ToolTipService.ToolTip="Every play, by the day">
-                    <muxc:NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE81C;" />
-                    </muxc:NavigationViewItem.Icon>
-                </muxc:NavigationViewItem>
-                <muxc:NavigationViewItem x:Name="LikedItem" Content="Liked Songs" Tag="liked" ToolTipService.ToolTip="Liked Songs">
-                    <muxc:NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xEB52;" />
-                    </muxc:NavigationViewItem.Icon>
-                </muxc:NavigationViewItem>
-                <muxc:NavigationViewItem Content="Albums" Tag="albums" ToolTipService.ToolTip="Saved albums">
-                    <muxc:NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE93C;" />
-                    </muxc:NavigationViewItem.Icon>
-                </muxc:NavigationViewItem>
-                <muxc:NavigationViewItem Content="Playlists" Tag="playlists" ToolTipService.ToolTip="Saved playlists">
-                    <muxc:NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE8FD;" />
-                    </muxc:NavigationViewItem.Icon>
-                </muxc:NavigationViewItem>
-                <muxc:NavigationViewItem Content="Artists" Tag="artists" ToolTipService.ToolTip="Followed artists">
-                    <muxc:NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE77B;" />
-                    </muxc:NavigationViewItem.Icon>
-                </muxc:NavigationViewItem>
-                <muxc:NavigationViewItem x:Name="DownloadsItem" Content="Downloads" Tag="downloads" ToolTipService.ToolTip="Downloads">
-                    <muxc:NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE896;" />
-                    </muxc:NavigationViewItem.Icon>
-                </muxc:NavigationViewItem>
-                <muxc:NavigationViewItem Content="Ready Offline" Tag="offline" ToolTipService.ToolTip="Songs kept on this PC">
-                    <muxc:NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE709;" />
-                    </muxc:NavigationViewItem.Icon>
-                </muxc:NavigationViewItem>
-                <muxc:NavigationViewItem Content="Listening Stats" Tag="stats" ToolTipService.ToolTip="Listening Stats">
-                    <muxc:NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE9D9;" />
-                    </muxc:NavigationViewItem.Icon>
-                </muxc:NavigationViewItem>
-                <muxc:NavigationViewItem Content="Last.fm" Tag="lastfm" ToolTipService.ToolTip="Scrobble what you play to Last.fm">
-                    <muxc:NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xEC05;" />
-                    </muxc:NavigationViewItem.Icon>
-                </muxc:NavigationViewItem>
-
-                <muxc:NavigationViewItemHeader Content="Your playlists" />
-                <muxc:NavigationViewItem x:Name="NewPlaylistItem" Content="New Playlist" Tag="new-playlist" SelectsOnInvoked="False" ToolTipService.ToolTip="Make a new playlist">
-                    <muxc:NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE710;" />
-                    </muxc:NavigationViewItem.Icon>
-                </muxc:NavigationViewItem>
-            </muxc:NavigationView.MenuItems>
-
-            <muxc:NavigationView.FooterMenuItems>
-                <!-- What plays next and today's listening, as ordinary two-line rows: they line up
-                     with the rest of the pane, keep its hover and focus, and shrink to their icon
-                     when the pane is compact. -->
-                <muxc:NavigationViewItem
-                    x:Name="UpNextItem"
-                    Tag="up-next"
-                    SelectsOnInvoked="False"
-                    Visibility="Collapsed">
-                    <muxc:NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE8D6;" />
-                    </muxc:NavigationViewItem.Icon>
-                    <StackPanel VerticalAlignment="Center" Margin="0,5">
-                        <TextBlock x:Name="UpNextTitle" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
-                        <TextBlock
-                            x:Name="UpNextArtist"
-                            Style="{ThemeResource CaptionTextBlockStyle}"
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            TextTrimming="CharacterEllipsis"
-                            TextWrapping="NoWrap" />
-                    </StackPanel>
-                </muxc:NavigationViewItem>
-
-                <muxc:NavigationViewItem
-                    x:Name="GlanceItem"
-                    Tag="glance"
-                    SelectsOnInvoked="False">
-                    <muxc:NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE7F6;" />
-                    </muxc:NavigationViewItem.Icon>
-                    <StackPanel VerticalAlignment="Center" Margin="0,5">
-                        <TextBlock x:Name="GlanceListened" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
-                        <TextBlock
-                            x:Name="GlanceStreak"
-                            Style="{ThemeResource CaptionTextBlockStyle}"
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            TextTrimming="CharacterEllipsis"
-                            TextWrapping="NoWrap" />
-                    </StackPanel>
-                </muxc:NavigationViewItem>
-            </muxc:NavigationView.FooterMenuItems>
-
-            <Grid>
-                <Frame x:Name="ContentFrame" />
-                <!-- Non-blocking notes and faults: never a dialog. -->
-                <muxc:InfoBar
-                    x:Name="StatusRibbon"
-                    MaxWidth="640"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Bottom"
-                    Margin="0,0,0,12"
-                    IsOpen="False"
-                    IsClosable="True"
-                    CloseButtonClick="OnStatusClosed" />
-            </Grid>
-        </muxc:NavigationView>
-
-        <!-- Player bar on the window's Mica, a hairline above it:
-             now playing (left) | transport over the scrubber (center) | volume (right). -->
-        <Grid
-            x:Name="PlayerBar"
-            Grid.Row="2"
-            Height="84"
-            Padding="12,0"
-            ColumnSpacing="16"
-            SizeChanged="OnPlayerBarSizeChanged">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" MinWidth="200" />
-                <ColumnDefinition Width="2*" MaxWidth="620" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <Border Grid.ColumnSpan="3" Height="1" Margin="-12,0" VerticalAlignment="Top" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-
-            <Grid ColumnSpacing="12" VerticalAlignment="Center">
+            <Grid
+                x:Name="TitleBarContent"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Top"
+                RenderTransformOrigin="0,0">
+                <Grid.RenderTransform>
+                    <ScaleTransform x:Name="TitleBarScale" />
+                </Grid.RenderTransform>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="56" />
+                    <ColumnDefinition x:Name="LeftInset" Width="0" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition x:Name="RightInset" Width="0" />
                 </Grid.ColumnDefinitions>
-                <Border Width="56" Height="56" CornerRadius="8" Background="{ThemeResource SubtleFillColorSecondaryBrush}" Tapped="OnNowPlayingTapped" ToolTipService.ToolTip="Now Playing">
-                    <Grid>
-                        <FontIcon x:Name="CoverGlyph" Glyph="&#xE8D6;" FontSize="18" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                        <Image x:Name="CoverImage" helpers:Art.Pixels="56" Stretch="UniformToFill" />
-                    </Grid>
-                </Border>
-                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="4" Margin="4,0,0,0">
+                    <Button
+                        x:Name="BackButton"
+                        Width="32"
+                        Height="32"
+                        Padding="0"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        IsEnabled="False"
+                        Click="OnBackClick"
+                        ToolTipService.ToolTip="Back"
+                        AutomationProperties.Name="Back">
+                        <FontIcon Glyph="&#xE72B;" FontSize="14" />
+                    </Button>
+                    <Image Source="ms-appx:///Assets/icon.png" Width="18" Height="18" Margin="4,0,0,0" VerticalAlignment="Center" />
                     <TextBlock
-                        x:Name="TrackTitleText"
-                        Text="Nothing playing"
-                        Style="{ThemeResource BodyStrongTextBlockStyle}"
-                        TextTrimming="CharacterEllipsis"
-                        TextWrapping="NoWrap"
-                        Tapped="OnNowPlayingTapped"
-                        AutomationProperties.Name="Track title" />
-                    <TextBlock
-                        x:Name="TrackArtistText"
-                        Style="{ThemeResource CaptionTextBlockStyle}"
-                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                        TextTrimming="CharacterEllipsis"
-                        TextWrapping="NoWrap"
-                        Tapped="OnArtistTapped"
-                        AutomationProperties.Name="Track artist" />
+                        x:Name="AppTitle"
+                        Text="Koda"
+                        Margin="8,0,0,0"
+                        VerticalAlignment="Center"
+                        Style="{ThemeResource CaptionTextBlockStyle}" />
                 </StackPanel>
-                <Button
-                    x:Name="LikeButton"
-                    Grid.Column="2"
-                    Width="36"
-                    Height="36"
-                    Padding="0"
-                    Background="Transparent"
-                    BorderThickness="0"
-                    Visibility="Collapsed"
-                    Click="OnLikeClick"
-                    ToolTipService.ToolTip="Add to Liked"
-                    AutomationProperties.Name="Add to Liked">
-                    <FontIcon x:Name="LikeIcon" Glyph="&#xEB51;" FontSize="16" />
-                </Button>
+
+                <AutoSuggestBox
+                    x:Name="TitleSearch"
+                    Grid.Column="3"
+                    Width="420"
+                    VerticalAlignment="Center"
+                    PlaceholderText="Songs, albums, artists or a link"
+                    QueryIcon="Find"
+                    TextChanged="OnSearchTextChanged"
+                    QuerySubmitted="OnSearchSubmitted"
+                    SizeChanged="OnTitleBarPartsChanged"
+                    AutomationProperties.Name="Search YouTube Music" />
+            </Grid>
+        </Grid>
+
+        <!-- The content below the title bar zooms as one: Ctrl + and Ctrl - change it, while
+             the title bar and caption buttons stay native. The content lays out at the
+             window size divided by the zoom, then is scaled back up: text grows and less
+             fits, as with a browser zoom. -->
+        <Grid x:Name="ZoomHost" Grid.Row="1">
+            <Grid
+                x:Name="ZoomContent"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Top"
+                RenderTransformOrigin="0,0">
+                <Grid.RenderTransform>
+                    <ScaleTransform x:Name="ZoomScale" />
+                </Grid.RenderTransform>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <muxc:NavigationView
+                    x:Name="Nav"
+                    Grid.Row="0"
+                    PaneDisplayMode="Left"
+                    OpenPaneLength="264"
+                    CompactPaneLength="52"
+                    IsBackButtonVisible="Collapsed"
+                    IsSettingsVisible="True"
+                    IsTitleBarAutoPaddingEnabled="False"
+                    ItemInvoked="OnNavItemInvoked">
+                    <muxc:NavigationView.MenuItems>
+                        <muxc:NavigationViewItem Content="Home" Tag="home" ToolTipService.ToolTip="Home">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE80F;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+                        <muxc:NavigationViewItem Content="Browse" Tag="browse" ToolTipService.ToolTip="Browse moods and genres">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE8A9;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+                        <muxc:NavigationViewItem x:Name="SearchResultsItem" Content="Search Results" Tag="search" Visibility="Collapsed" ToolTipService.ToolTip="Search results">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE721;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+
+                        <muxc:NavigationViewItemHeader Content="Library" />
+                        <muxc:NavigationViewItem Content="Recently Played" Tag="recent" ToolTipService.ToolTip="Recently Played">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE823;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+                        <muxc:NavigationViewItem Content="History" Tag="history" ToolTipService.ToolTip="Every play, by the day">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE81C;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+                        <muxc:NavigationViewItem x:Name="LikedItem" Content="Liked Songs" Tag="liked" ToolTipService.ToolTip="Liked Songs">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xEB52;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+                        <muxc:NavigationViewItem Content="Albums" Tag="albums" ToolTipService.ToolTip="Saved albums">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE93C;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+                        <muxc:NavigationViewItem Content="Playlists" Tag="playlists" ToolTipService.ToolTip="Saved playlists">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE8FD;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+                        <muxc:NavigationViewItem Content="Artists" Tag="artists" ToolTipService.ToolTip="Followed artists">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE77B;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+                        <muxc:NavigationViewItem x:Name="DownloadsItem" Content="Downloads" Tag="downloads" ToolTipService.ToolTip="Downloads">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE896;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+                        <muxc:NavigationViewItem Content="Ready Offline" Tag="offline" ToolTipService.ToolTip="Songs kept on this PC">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE709;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+                        <muxc:NavigationViewItem Content="Listening Stats" Tag="stats" ToolTipService.ToolTip="Listening Stats">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE9D9;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+                        <muxc:NavigationViewItem Content="Last.fm" Tag="lastfm" ToolTipService.ToolTip="Scrobble what you play to Last.fm">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xEC05;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+
+                        <muxc:NavigationViewItemHeader Content="Your playlists" />
+                        <muxc:NavigationViewItem x:Name="NewPlaylistItem" Content="New Playlist" Tag="new-playlist" SelectsOnInvoked="False" ToolTipService.ToolTip="Make a new playlist">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE710;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+                    </muxc:NavigationView.MenuItems>
+
+                    <muxc:NavigationView.FooterMenuItems>
+                        <!-- What plays next and today's listening, as ordinary two-line rows: they line up
+                             with the rest of the pane, keep its hover and focus, and shrink to their icon
+                             when the pane is compact. -->
+                        <muxc:NavigationViewItem
+                            x:Name="UpNextItem"
+                            Tag="up-next"
+                            SelectsOnInvoked="False"
+                            Visibility="Collapsed">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE8D6;" />
+                            </muxc:NavigationViewItem.Icon>
+                            <StackPanel VerticalAlignment="Center" Margin="0,5">
+                                <TextBlock x:Name="UpNextTitle" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                <TextBlock
+                                    x:Name="UpNextArtist"
+                                    Style="{ThemeResource CaptionTextBlockStyle}"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    TextTrimming="CharacterEllipsis"
+                                    TextWrapping="NoWrap" />
+                            </StackPanel>
+                        </muxc:NavigationViewItem>
+
+                        <muxc:NavigationViewItem
+                            x:Name="GlanceItem"
+                            Tag="glance"
+                            SelectsOnInvoked="False">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE7F6;" />
+                            </muxc:NavigationViewItem.Icon>
+                            <StackPanel VerticalAlignment="Center" Margin="0,5">
+                                <TextBlock x:Name="GlanceListened" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                <TextBlock
+                                    x:Name="GlanceStreak"
+                                    Style="{ThemeResource CaptionTextBlockStyle}"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    TextTrimming="CharacterEllipsis"
+                                    TextWrapping="NoWrap" />
+                            </StackPanel>
+                        </muxc:NavigationViewItem>
+                    </muxc:NavigationView.FooterMenuItems>
+
+                    <Grid>
+                        <Frame x:Name="ContentFrame" />
+                        <!-- Non-blocking notes and faults: never a dialog. -->
+                        <muxc:InfoBar
+                            x:Name="StatusRibbon"
+                            MaxWidth="640"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Bottom"
+                            Margin="0,0,0,12"
+                            IsOpen="False"
+                            IsClosable="True"
+                            CloseButtonClick="OnStatusClosed" />
+                    </Grid>
+                </muxc:NavigationView>
+
+                <!-- Player bar on the window's Mica, a hairline above it:
+                     now playing (left) | transport over the scrubber (center) | volume (right). -->
+                <Grid
+                    x:Name="PlayerBar"
+                    Grid.Row="1"
+                    Height="84"
+                    Padding="12,0"
+                    ColumnSpacing="16"
+                    SizeChanged="OnPlayerBarSizeChanged">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" MinWidth="200" />
+                        <ColumnDefinition Width="2*" MaxWidth="620" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.ColumnSpan="3" Height="1" Margin="-12,0" VerticalAlignment="Top" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                    <Grid ColumnSpacing="12" VerticalAlignment="Center">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="56" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Border Width="56" Height="56" CornerRadius="8" Background="{ThemeResource SubtleFillColorSecondaryBrush}" Tapped="OnNowPlayingTapped" ToolTipService.ToolTip="Now Playing">
+                            <Grid>
+                                <FontIcon x:Name="CoverGlyph" Glyph="&#xE8D6;" FontSize="18" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                <Image x:Name="CoverImage" helpers:Art.Pixels="56" Stretch="UniformToFill" />
+                            </Grid>
+                        </Border>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                            <TextBlock
+                                x:Name="TrackTitleText"
+                                Text="Nothing playing"
+                                Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                TextTrimming="CharacterEllipsis"
+                                TextWrapping="NoWrap"
+                                Tapped="OnNowPlayingTapped"
+                                AutomationProperties.Name="Track title" />
+                            <TextBlock
+                                x:Name="TrackArtistText"
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextTrimming="CharacterEllipsis"
+                                TextWrapping="NoWrap"
+                                Tapped="OnArtistTapped"
+                                AutomationProperties.Name="Track artist" />
+                        </StackPanel>
+                        <Button
+                            x:Name="LikeButton"
+                            Grid.Column="2"
+                            Width="36"
+                            Height="36"
+                            Padding="0"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Visibility="Collapsed"
+                            Click="OnLikeClick"
+                            ToolTipService.ToolTip="Add to Liked"
+                            AutomationProperties.Name="Add to Liked">
+                            <FontIcon x:Name="LikeIcon" Glyph="&#xEB51;" FontSize="16" />
+                        </Button>
+                    </Grid>
+
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
+                            <ToggleButton
+                                x:Name="ShuffleButton"
+                                Width="36"
+                                Height="36"
+                                Padding="0"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                IsEnabled="False"
+                                Click="OnShuffleClick"
+                                ToolTipService.ToolTip="Shuffle"
+                                AutomationProperties.Name="Shuffle">
+                                <FontIcon Glyph="&#xE8B1;" FontSize="14" />
+                            </ToggleButton>
+                            <Button
+                                x:Name="PreviousButton"
+                                Width="36"
+                                Height="36"
+                                Padding="0"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                IsEnabled="False"
+                                Click="OnPrevClick"
+                                ToolTipService.ToolTip="Previous"
+                                AutomationProperties.Name="Previous">
+                                <FontIcon Glyph="&#xE892;" FontSize="16" />
+                            </Button>
+                            <Button
+                                x:Name="SkipBackButton"
+                                Width="36"
+                                Height="36"
+                                Padding="0"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                IsEnabled="False"
+                                Click="OnSkipBackClick"
+                                ToolTipService.ToolTip="Back 10 seconds"
+                                AutomationProperties.Name="Back 10 seconds">
+                                <controls:SkipIcon x:Name="SkipBackIcon" Direction="Back" Seconds="10" Width="18" Height="18" />
+                            </Button>
+                            <Button
+                                x:Name="PlayPauseButton"
+                                Width="40"
+                                Height="40"
+                                Padding="0"
+                                CornerRadius="20"
+                                IsEnabled="False"
+                                Style="{ThemeResource AccentButtonStyle}"
+                                Click="OnPlayPauseClick"
+                                ToolTipService.ToolTip="Play (Space)"
+                                AutomationProperties.Name="Play">
+                                <Grid>
+                                    <FontIcon x:Name="PlayPauseIcon" Glyph="&#xF5B0;" FontSize="16" />
+                                    <ProgressRing x:Name="BarLoading" Width="20" Height="20" IsActive="False" Visibility="Collapsed" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                </Grid>
+                            </Button>
+                            <Button
+                                x:Name="SkipForwardButton"
+                                Width="36"
+                                Height="36"
+                                Padding="0"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                IsEnabled="False"
+                                Click="OnSkipForwardClick"
+                                ToolTipService.ToolTip="Ahead 10 seconds"
+                                AutomationProperties.Name="Ahead 10 seconds">
+                                <controls:SkipIcon x:Name="SkipForwardIcon" Direction="Forward" Seconds="10" Width="18" Height="18" />
+                            </Button>
+                            <Button
+                                x:Name="NextButton"
+                                Width="36"
+                                Height="36"
+                                Padding="0"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                IsEnabled="False"
+                                Click="OnNextClick"
+                                ToolTipService.ToolTip="Next"
+                                AutomationProperties.Name="Next">
+                                <FontIcon Glyph="&#xE893;" FontSize="16" />
+                            </Button>
+                            <ToggleButton
+                                x:Name="RepeatButton"
+                                Width="36"
+                                Height="36"
+                                Padding="0"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                IsEnabled="False"
+                                Click="OnRepeatClick"
+                                ToolTipService.ToolTip="Repeat"
+                                AutomationProperties.Name="Repeat">
+                                <FontIcon x:Name="RepeatIcon" Glyph="&#xE8EE;" FontSize="14" />
+                            </ToggleButton>
+                        </StackPanel>
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="40" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="40" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="ElapsedText" VerticalAlignment="Center" TextAlignment="Right" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <Slider
+                                x:Name="Scrubber"
+                                Grid.Column="1"
+                                Minimum="0"
+                                Maximum="1"
+                                IsEnabled="False"
+                                IsThumbToolTipEnabled="False"
+                                VerticalAlignment="Center"
+                                AutomationProperties.Name="Playback position" />
+                            <TextBlock x:Name="TotalText" Grid.Column="2" VerticalAlignment="Center" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </Grid>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="4">
+                        <Button
+                            x:Name="MiniButton"
+                            Width="36"
+                            Height="36"
+                            Padding="0"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            IsEnabled="False"
+                            Click="OnMiniClick"
+                            ToolTipService.ToolTip="Mini player"
+                            AutomationProperties.Name="Mini player">
+                            <FontIcon Glyph="&#xE9A6;" FontSize="16" />
+                        </Button>
+                        <Button
+                            x:Name="QueueButton"
+                            Width="36"
+                            Height="36"
+                            Padding="0"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            IsEnabled="False"
+                            Click="OnQueueClick"
+                            ToolTipService.ToolTip="Queue"
+                            AutomationProperties.Name="Queue">
+                            <FontIcon Glyph="&#xE8FD;" FontSize="16" />
+                        </Button>
+                        <Button
+                            x:Name="MuteButton"
+                            Width="36"
+                            Height="36"
+                            Padding="0"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Click="OnMuteClick"
+                            ToolTipService.ToolTip="Mute"
+                            AutomationProperties.Name="Mute">
+                            <FontIcon x:Name="MuteIcon" Glyph="&#xE767;" FontSize="16" />
+                        </Button>
+                        <Button
+                            x:Name="OutputButton"
+                            Width="36"
+                            Height="36"
+                            Padding="0"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Click="OnOutputClick"
+                            ToolTipService.ToolTip="Audio output"
+                            AutomationProperties.Name="Audio output">
+                            <FontIcon Glyph="&#xE7F5;" FontSize="16" />
+                        </Button>
+                        <Slider
+                            x:Name="VolumeSlider"
+                            Width="110"
+                            VerticalAlignment="Center"
+                            Minimum="0"
+                            Maximum="100"
+                            Value="100"
+                            ValueChanged="OnVolumeChanged"
+                            AutomationProperties.Name="Volume" />
+                    </StackPanel>
+                </Grid>
             </Grid>
 
-            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
-                    <ToggleButton
-                        x:Name="ShuffleButton"
-                        Width="36"
-                        Height="36"
-                        Padding="0"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        IsEnabled="False"
-                        Click="OnShuffleClick"
-                        ToolTipService.ToolTip="Shuffle"
-                        AutomationProperties.Name="Shuffle">
-                        <FontIcon Glyph="&#xE8B1;" FontSize="14" />
-                    </ToggleButton>
-                    <Button
-                        x:Name="PreviousButton"
-                        Width="36"
-                        Height="36"
-                        Padding="0"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        IsEnabled="False"
-                        Click="OnPrevClick"
-                        ToolTipService.ToolTip="Previous"
-                        AutomationProperties.Name="Previous">
-                        <FontIcon Glyph="&#xE892;" FontSize="16" />
-                    </Button>
-                    <Button
-                        x:Name="SkipBackButton"
-                        Width="36"
-                        Height="36"
-                        Padding="0"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        IsEnabled="False"
-                        Click="OnSkipBackClick"
-                        ToolTipService.ToolTip="Back 10 seconds"
-                        AutomationProperties.Name="Back 10 seconds">
-                        <controls:SkipIcon x:Name="SkipBackIcon" Direction="Back" Seconds="10" Width="18" Height="18" />
-                    </Button>
-                    <Button
-                        x:Name="PlayPauseButton"
-                        Width="40"
-                        Height="40"
-                        Padding="0"
-                        CornerRadius="20"
-                        IsEnabled="False"
-                        Style="{ThemeResource AccentButtonStyle}"
-                        Click="OnPlayPauseClick"
-                        ToolTipService.ToolTip="Play (Space)"
-                        AutomationProperties.Name="Play">
-                        <Grid>
-                            <FontIcon x:Name="PlayPauseIcon" Glyph="&#xF5B0;" FontSize="16" />
-                            <ProgressRing x:Name="BarLoading" Width="20" Height="20" IsActive="False" Visibility="Collapsed" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
-                        </Grid>
-                    </Button>
-                    <Button
-                        x:Name="SkipForwardButton"
-                        Width="36"
-                        Height="36"
-                        Padding="0"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        IsEnabled="False"
-                        Click="OnSkipForwardClick"
-                        ToolTipService.ToolTip="Ahead 10 seconds"
-                        AutomationProperties.Name="Ahead 10 seconds">
-                        <controls:SkipIcon x:Name="SkipForwardIcon" Direction="Forward" Seconds="10" Width="18" Height="18" />
-                    </Button>
-                    <Button
-                        x:Name="NextButton"
-                        Width="36"
-                        Height="36"
-                        Padding="0"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        IsEnabled="False"
-                        Click="OnNextClick"
-                        ToolTipService.ToolTip="Next"
-                        AutomationProperties.Name="Next">
-                        <FontIcon Glyph="&#xE893;" FontSize="16" />
-                    </Button>
-                    <ToggleButton
-                        x:Name="RepeatButton"
-                        Width="36"
-                        Height="36"
-                        Padding="0"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        IsEnabled="False"
-                        Click="OnRepeatClick"
-                        ToolTipService.ToolTip="Repeat"
-                        AutomationProperties.Name="Repeat">
-                        <FontIcon x:Name="RepeatIcon" Glyph="&#xE8EE;" FontSize="14" />
-                    </ToggleButton>
-                </StackPanel>
-                <Grid ColumnSpacing="10">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="40" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="40" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock x:Name="ElapsedText" VerticalAlignment="Center" TextAlignment="Right" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    <Slider
-                        x:Name="Scrubber"
-                        Grid.Column="1"
-                        Minimum="0"
-                        Maximum="1"
-                        IsEnabled="False"
-                        IsThumbToolTipEnabled="False"
-                        VerticalAlignment="Center"
-                        AutomationProperties.Name="Playback position" />
-                    <TextBlock x:Name="TotalText" Grid.Column="2" VerticalAlignment="Center" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                </Grid>
-            </StackPanel>
-
-            <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="4">
-                <Button
-                    x:Name="MiniButton"
-                    Width="36"
-                    Height="36"
-                    Padding="0"
-                    Background="Transparent"
-                    BorderThickness="0"
-                    IsEnabled="False"
-                    Click="OnMiniClick"
-                    ToolTipService.ToolTip="Mini player"
-                    AutomationProperties.Name="Mini player">
-                    <FontIcon Glyph="&#xE9A6;" FontSize="16" />
-                </Button>
-                <Button
-                    x:Name="QueueButton"
-                    Width="36"
-                    Height="36"
-                    Padding="0"
-                    Background="Transparent"
-                    BorderThickness="0"
-                    IsEnabled="False"
-                    Click="OnQueueClick"
-                    ToolTipService.ToolTip="Queue"
-                    AutomationProperties.Name="Queue">
-                    <FontIcon Glyph="&#xE8FD;" FontSize="16" />
-                </Button>
-                <Button
-                    x:Name="MuteButton"
-                    Width="36"
-                    Height="36"
-                    Padding="0"
-                    Background="Transparent"
-                    BorderThickness="0"
-                    Click="OnMuteClick"
-                    ToolTipService.ToolTip="Mute"
-                    AutomationProperties.Name="Mute">
-                    <FontIcon x:Name="MuteIcon" Glyph="&#xE767;" FontSize="16" />
-                </Button>
-                <Button
-                    x:Name="OutputButton"
-                    Width="36"
-                    Height="36"
-                    Padding="0"
-                    Background="Transparent"
-                    BorderThickness="0"
-                    Click="OnOutputClick"
-                    ToolTipService.ToolTip="Audio output"
-                    AutomationProperties.Name="Audio output">
-                    <FontIcon Glyph="&#xE7F5;" FontSize="16" />
-                </Button>
-                <Slider
-                    x:Name="VolumeSlider"
-                    Width="110"
-                    VerticalAlignment="Center"
-                    Minimum="0"
-                    Maximum="100"
-                    Value="100"
-                    ValueChanged="OnVolumeChanged"
-                    AutomationProperties.Name="Volume" />
-            </StackPanel>
+            <Border
+                x:Name="ZoomBadge"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Top"
+                Margin="0,16,0,0"
+                Padding="14,7"
+                CornerRadius="16"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                Visibility="Collapsed"
+                IsHitTestVisible="False">
+                <TextBlock x:Name="ZoomBadgeText" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+            </Border>
         </Grid>
+
     </Grid>
 </Window>

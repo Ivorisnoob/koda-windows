@@ -20,8 +20,10 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Graphics;
 using Windows.Media;
+using CoreVirtualKeyStates = Windows.UI.Core.CoreVirtualKeyStates;
 using VirtualKey = Windows.System.VirtualKey;
 using VirtualKeyModifiers = Windows.System.VirtualKeyModifiers;
+using YouTubeLink = Koda.Core.YouTubeLink;
 
 namespace Koda;
 
@@ -31,6 +33,18 @@ public sealed partial class MainWindow : Window
 
     private const int MinWindowDipWidth = 700;
     private const int MinWindowDipHeight = 520;
+
+    /// <summary>The steps Ctrl + and Ctrl - walk through; 1 is 100%. The bottom of the
+    /// range is for very large displays, where the window has room for a lot more.</summary>
+    private static readonly double[] ZoomSteps = [0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5];
+
+    /// <summary>The title bar is the standard Windows height. Its caption buttons are
+    /// drawn by Windows and cannot be made smaller, so this is the floor.</summary>
+    private const double TitleBarHeight = 32;
+
+    /// <summary>The title bar's own content follows the UI zoom, but not below 75%:
+    /// a back button and a search field still have to be usable.</summary>
+    private const double TitleBarMinScale = 0.75;
 
     private TrayIconHost? _tray;
     private Taskbar? _taskbar;
@@ -49,6 +63,10 @@ public sealed partial class MainWindow : Window
     private DispatcherQueueTimer? _statusTimer;
     private DispatcherQueueTimer? _suggestTimer;
     private CancellationTokenSource? _suggestCancel;
+    private YouTubeLink? _linkSuggestion;
+    private DispatcherQueueTimer? _zoomTimer;
+    private double _zoom = 1;
+    private double _titleScale = 1;
 
     private delegate nint WndProc(nint hwnd, uint msg, nint wParam, nint lParam);
     private static readonly WndProc SubclassedProc = OnWndProc;
@@ -68,12 +86,15 @@ public sealed partial class MainWindow : Window
         appWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "icon.ico"));
 
         // The title bar is ours: Mica runs to the top edge, caption buttons float on it.
+        // Windows' standard height is the thin one; the bar's content shrinks with the UI zoom.
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
-        appWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
+        appWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Standard;
+        Root.RowDefinitions[0].Height = new GridLength(TitleBarHeight);
         Root.ActualThemeChanged += (_, _) => PaintCaptionButtons();
         PaintCaptionButtons();
         AppTitleBar.SizeChanged += OnTitleBarPartsChanged;
+        TitleBarContent.SizeChanged += OnTitleBarPartsChanged;
         Activated += OnActivated;
 
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -139,6 +160,15 @@ public sealed partial class MainWindow : Window
         _suggestTimer.IsRepeating = false;
         _suggestTimer.Tick += (_, _) => _ = LoadSuggestionsAsync(TitleSearch.Text);
 
+        _zoomTimer = dispatch.CreateTimer();
+        _zoomTimer.Interval = TimeSpan.FromSeconds(1.4);
+        _zoomTimer.IsRepeating = false;
+        _zoomTimer.Tick += (_, _) => ZoomBadge.Visibility = Visibility.Collapsed;
+
+        ZoomHost.SizeChanged += (_, _) => ApplyZoom();
+        RestoreZoom();
+        ApplyTitleBarScale();
+
         AddShortcuts();
         ApplySkipSettings();
 
@@ -202,15 +232,20 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>The caption buttons' space is kept clear, and the back button and search field stay clickable.</summary>
-    private void OnTitleBarPartsChanged(object sender, SizeChangedEventArgs args)
+    private void OnTitleBarPartsChanged(object sender, SizeChangedEventArgs args) => ApplyTitleBarScale();
+
+    private void UpdateTitleBarRegions()
     {
-        var scale = AppTitleBar.XamlRoot?.RasterizationScale ?? 1.0;
-        LeftInset.Width = new GridLength(AppWindow.TitleBar.LeftInset / scale);
-        RightInset.Width = new GridLength(AppWindow.TitleBar.RightInset / scale);
         if (AppTitleBar.XamlRoot is null)
         {
             return;
         }
+
+        var scale = AppTitleBar.XamlRoot.RasterizationScale;
+        // The title bar content lays out at the room divided by the title scale, then is
+        // scaled back up, so its insets are in that layout space too.
+        LeftInset.Width = new GridLength(AppWindow.TitleBar.LeftInset / scale / _titleScale);
+        RightInset.Width = new GridLength(AppWindow.TitleBar.RightInset / scale / _titleScale);
 
         var rects = new List<RectInt32>();
         foreach (var element in new FrameworkElement[] { BackButton, TitleSearch })
@@ -262,6 +297,9 @@ public sealed partial class MainWindow : Window
             ContentFrame.Navigate(page, parameter, new Microsoft.UI.Xaml.Media.Animation.EntranceNavigationTransitionInfo());
             ContentFrame.BackStack.Clear();
             ContentFrame.ForwardStack.Clear();
+            // Navigated is raised during Navigate, before the stack is cleared: without this
+            // the button stays lit on a section's first page with nowhere to go.
+            UpdateBackButton();
         }
         catch (Exception error)
         {
@@ -377,9 +415,11 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void UpdateBackButton() => BackButton.IsEnabled = ContentFrame.CanGoBack;
+
     private void OnContentNavigated(object sender, Microsoft.UI.Xaml.Navigation.NavigationEventArgs args)
     {
-        BackButton.IsEnabled = ContentFrame.CanGoBack;
+        UpdateBackButton();
         // Now Playing is the whole player: the bar steps aside while it is open.
         PlayerBar.Visibility = args.SourcePageType == typeof(NowPlayingPage) ? Visibility.Collapsed : Visibility.Visible;
         if (args.SourcePageType == typeof(SearchPage))
@@ -605,9 +645,19 @@ public sealed partial class MainWindow : Window
         }
 
         _suggestTimer?.Stop();
+        _linkSuggestion = YouTubeLink.Parse(sender.Text);
         if (sender.Text.Trim().Length == 0)
         {
             sender.ItemsSource = App.Library.Searches.Take(8).ToList();
+            return;
+        }
+
+        // A pasted YouTube link is offered instead of searching for the URL itself.
+        if (_linkSuggestion is { } link)
+        {
+            _suggestCancel?.Cancel();
+            sender.ItemsSource = new[] { link.OpenTitle };
+            sender.IsSuggestionListOpen = true;
             return;
         }
 
@@ -616,6 +666,12 @@ public sealed partial class MainWindow : Window
 
     private async System.Threading.Tasks.Task LoadSuggestionsAsync(string text)
     {
+        // The link row is the only suggestion for a link, even if a tick was already queued.
+        if (YouTubeLink.Parse(text) is not null)
+        {
+            return;
+        }
+
         _suggestCancel?.Cancel();
         var cancel = _suggestCancel = new CancellationTokenSource();
         try
@@ -634,10 +690,24 @@ public sealed partial class MainWindow : Window
 
     private void OnSearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
     {
-        var query = (args.ChosenSuggestion as string ?? args.QueryText).Trim();
+        var chosen = args.ChosenSuggestion as string;
+        var query = (chosen ?? args.QueryText).Trim();
+        var link = chosen is not null && _linkSuggestion is { } pending && chosen == pending.OpenTitle
+            ? pending
+            : YouTubeLink.Parse(args.QueryText);
         _suggestTimer?.Stop();
         _suggestCancel?.Cancel();
         sender.ItemsSource = null;
+
+        // A pasted YouTube or YouTube Music link plays (or opens) what it points at.
+        if (link is not null)
+        {
+            _linkSuggestion = null;
+            sender.Text = "";
+            OpenLink(link);
+            return;
+        }
+
         if (query.Length == 0)
         {
             return;
@@ -645,6 +715,26 @@ public sealed partial class MainWindow : Window
 
         sender.Text = query;
         SearchFor(query);
+    }
+
+    /// <summary>A link from search: a song plays with its radio, anything else opens its page.</summary>
+    private void OpenLink(YouTubeLink link)
+    {
+        switch (link)
+        {
+            case YouTubeLink.Song song:
+                _ = Playback.PlayLinkedSongAsync(song.VideoId);
+                break;
+            case YouTubeLink.Album album:
+                NavigateTo(typeof(AlbumPage), album.BrowseId);
+                break;
+            case YouTubeLink.Playlist playlist:
+                NavigateTo(typeof(PlaylistPage), playlist.Id);
+                break;
+            case YouTubeLink.Artist artist:
+                NavigateTo(typeof(ArtistPage), artist.ChannelId);
+                break;
+        }
     }
 
     public void SetSearchText(string query) => TitleSearch.Text = query;
@@ -688,6 +778,136 @@ public sealed partial class MainWindow : Window
             Playback.Toggle();
             args.Handled = true;
         }), true);
+
+        Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnZoomKeyDown), true);
+    }
+
+    // MARK: zoom
+
+    /// <summary>Ctrl + and Ctrl - step the content's scale; Ctrl 0 puts it back to 100%.
+    /// The main row's + and - arrive as the OEM keys, which the accelerator list cannot
+    /// name, so the keys are read here instead.</summary>
+    private void OnZoomKeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        if (!InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(CoreVirtualKeyStates.Down)
+            || InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu).HasFlag(CoreVirtualKeyStates.Down))
+        {
+            return;
+        }
+
+        switch ((int)args.Key)
+        {
+            case 0xBB: // =
+            case 0x6B: // the numeric keypad's +
+                ZoomBy(1);
+                args.Handled = true;
+                break;
+
+            case 0xBD: // -
+            case 0x6D: // the numeric keypad's -
+                ZoomBy(-1);
+                args.Handled = true;
+                break;
+
+            case 0x30: // 0
+                SetZoom(1);
+                args.Handled = true;
+                break;
+        }
+    }
+
+    /// <summary>Puts the saved zoom back before the first layout; the window keeps its size,
+    /// and the content inside is what changes.</summary>
+    private void RestoreZoom()
+    {
+        var saved = App.Settings.UiZoom;
+        _zoom = double.IsFinite(saved) && saved > 0
+            ? Math.Clamp(saved, ZoomSteps[0], ZoomSteps[^1])
+            : 1;
+    }
+
+    private void ZoomBy(int direction)
+    {
+        var index = NearestZoomIndex(_zoom);
+        SetZoom(ZoomSteps[Math.Clamp(index + direction, 0, ZoomSteps.Length - 1)]);
+    }
+
+    private static int NearestZoomIndex(double zoom)
+    {
+        var index = 0;
+        for (var i = 1; i < ZoomSteps.Length; i++)
+        {
+            if (Math.Abs(ZoomSteps[i] - zoom) < Math.Abs(ZoomSteps[index] - zoom))
+            {
+                index = i;
+            }
+        }
+
+        return index;
+    }
+
+    private void SetZoom(double zoom)
+    {
+        var wanted = Math.Clamp(zoom, ZoomSteps[0], ZoomSteps[^1]);
+        if (Math.Abs(wanted - _zoom) > 0.0001)
+        {
+            _zoom = wanted;
+            App.Settings.Update(settings => settings.UiZoom = _zoom);
+            ApplyZoom();
+        }
+
+        ZoomBadgeText.Text = $"{Math.Round(_zoom * 100)}%";
+        ZoomBadge.Visibility = Visibility.Visible;
+        _zoomTimer?.Stop();
+        _zoomTimer?.Start();
+    }
+
+    /// <summary>The content lays out at the room divided by the zoom, then is scaled back up:
+    /// text grows and less fits, as a browser zoom does. The title bar keeps Windows' caption
+    /// buttons but scales its own content with the zoom, down to a usable floor.</summary>
+    private void ApplyZoom()
+    {
+        var width = ZoomHost.ActualWidth;
+        var height = ZoomHost.ActualHeight;
+        if (width > 0 && height > 0)
+        {
+            ZoomContent.Width = width / _zoom;
+            ZoomContent.Height = height / _zoom;
+            ZoomScale.ScaleX = _zoom;
+            ZoomScale.ScaleY = _zoom;
+        }
+
+        ApplyTitleBarScale();
+    }
+
+    /// <summary>The title bar content is laid out at the room divided by its scale, then
+    /// scaled back up, the same way the page content is. Windows' caption buttons keep
+    /// their native size, so the bar itself stays at the standard height.</summary>
+    private void ApplyTitleBarScale()
+    {
+        _titleScale = Math.Clamp(_zoom, TitleBarMinScale, 1);
+        var width = AppTitleBar.ActualWidth;
+        var height = AppTitleBar.ActualHeight;
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        var layoutWidth = width / _titleScale;
+        var layoutHeight = height / _titleScale;
+        if (!double.IsFinite(TitleBarContent.Width) || Math.Abs(TitleBarContent.Width - layoutWidth) > 0.5)
+        {
+            TitleBarContent.Width = layoutWidth;
+        }
+
+        if (!double.IsFinite(TitleBarContent.Height) || Math.Abs(TitleBarContent.Height - layoutHeight) > 0.5)
+        {
+            TitleBarContent.Height = layoutHeight;
+        }
+
+        TitleBarScale.ScaleX = _titleScale;
+        TitleBarScale.ScaleY = _titleScale;
+        UpdateTitleBarRegions();
     }
 
     // MARK: player bar

@@ -22,7 +22,7 @@ design system. [Koda for Android](https://github.com/Ivorisnoob/Koda) and
 [Koda for iOS and macOS](https://github.com/Ivorisnoob/iKoda) are its siblings; this repository is
 the Windows one - WinUI 3, Fluent, Mica, and the Windows shell's own surfaces.
 
-No official YouTube API key, no account, no ads in the app.
+No official YouTube API key, no ads in the app, and signing in to YouTube Music is optional.
 
 Questions, bug reports and ideas are welcome in the [Telegram community](https://t.me/ivorisnoob_chat),
 shared with Koda for Android and the rest of the family.
@@ -47,7 +47,8 @@ Windows already trusts.
 
 - **Home**: Your Mix, Quick picks, recently played, your top artists, charts and YouTube Music's
   own shelves.
-- **Search** for songs, albums, artists and playlists, with recent searches.
+- **Search** for songs, albums, artists and playlists, with recent searches, or paste a YouTube or
+  YouTube Music link to open it.
 - **Album, artist, playlist and mood pages**, each with its own hero and track list.
 - **Now Playing** in the cover's own colours, with the queue beside it.
 - **Lyrics, word by word**, from YouLyPlus, BetterLyrics and LRCLIB at once: the line being sung
@@ -70,6 +71,9 @@ Windows already trusts.
 
 **Connected**
 
+- **YouTube Music**: sign in with Google to bring your liked songs, saved albums, playlists and
+  artists to this PC, and keep them in step both ways. Plays heard for 15 seconds can go to the
+  account's YouTube history. Signing out keeps the library here.
 - **Last.fm** scrobbling, with your own API account and Last.fm's own approval page. Koda never sees
   your password, and plays made offline are sent later.
 - **Discord**: show what you're playing on your profile, with the cover and a link to the song.
@@ -80,6 +84,8 @@ Windows already trusts.
 - Close to the tray and keep playing; a song notification while Koda is out of sight.
 - A mini player that stays on top, a choice of audio output, open at login, `koda://` links and
   the Windows share sheet.
+- Ctrl + and Ctrl - scale the window's content, and Ctrl 0 puts it back to 100%; the choice is
+  remembered.
 - Works from the keyboard and with a screen reader; follows the system theme, accent and Energy
   Saver.
 
@@ -95,8 +101,9 @@ copy:
 $env:KODA_DATA = 'D:\KodaData'
 ```
 
-A Last.fm sign-in is kept in the Windows Credential Manager on that PC, never in the data folder or
-a backup.
+Last.fm and YouTube Music sign-ins are kept in the Windows Credential Manager on that PC, never in
+the data folder or a backup. The account's name and what the library last saw on YouTube Music live
+in `account.json` and `account-mirror.json` in the data folder.
 
 ## Building from source
 
@@ -124,7 +131,7 @@ given - come from one script. The MSI is built with the [WiX Toolset](https://wi
 | Path | What it is |
 |---|---|
 | `src/Koda` | The WinUI 3 app: shell, pages, playback, lyrics, system integration. |
-| `src/Koda.Core` | The engine: InnerTube client, parsers, audio transport and store, library, lyrics, downloads, Last.fm, Discord. |
+| `src/Koda.Core` | The engine: InnerTube client, parsers, audio transport and store, library, lyrics, downloads, Last.fm, Discord, and the YouTube Music account. |
 | `tests/Koda.Core.Tests` | Offline tests, driven by recorded responses in `Fixtures`. |
 | `installer` | The WiX project for the MSI. |
 | `scripts` | The release build script. |

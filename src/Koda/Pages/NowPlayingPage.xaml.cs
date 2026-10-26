@@ -105,7 +105,15 @@ public sealed partial class NowPlayingPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs args)
     {
         base.OnNavigatedTo(args);
-        if (args.Parameter is "queue") _queueOpen = true;
+        if (args.Parameter is "queue")
+        {
+            // The player bar's queue button opens the queue directly. The two side panels
+            // share one column, so asking for the queue also puts the lyrics away: they
+            // were left open from an earlier visit and would otherwise draw on top of it.
+            _queueOpen = true;
+            _lyricsOpen = false;
+        }
+
         Playback.TrackChanged += OnTrackChanged;
         Playback.QueueChanged += OnQueueChanged;
         Playback.PlayStateChanged += OnPlayStateChanged;
