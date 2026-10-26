@@ -75,6 +75,16 @@ public partial class App : Application
         DebugSettings.BindingFailed += (_, e) => System.Diagnostics.Debug.WriteLine(e.Message);
     }
 
+    /// <summary>The window is going away: stop pointing the shell at it, so a closed
+    /// window is not kept alive by the app.</summary>
+    internal static void ForgetShell(MainWindow window)
+    {
+        if (ReferenceEquals(Shell, window))
+        {
+            Shell = null;
+        }
+    }
+
     public static void SetCloseToTray(bool value) =>
         Settings.Update(s => s.CloseToTray = value);
 

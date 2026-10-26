@@ -25,9 +25,9 @@ public sealed class PageCache
     private readonly int _limit;
     private int _generation;
 
-    public PageCache(TimeSpan? lifetime = null, int limit = 80)
+    public PageCache(TimeSpan? lifetime = null, int limit = 40)
     {
-        _lifetime = lifetime ?? TimeSpan.FromMinutes(10);
+        _lifetime = lifetime ?? TimeSpan.FromMinutes(5);
         _limit = limit;
     }
 

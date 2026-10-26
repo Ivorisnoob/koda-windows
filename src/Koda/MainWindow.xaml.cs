@@ -67,6 +67,7 @@ public sealed partial class MainWindow : Window
     private DispatcherQueueTimer? _zoomTimer;
     private double _zoom = 1;
     private double _titleScale = 1;
+    private bool _shutdown;
 
     private delegate nint WndProc(nint hwnd, uint msg, nint wParam, nint lParam);
     private static readonly WndProc SubclassedProc = OnWndProc;
@@ -182,14 +183,22 @@ public sealed partial class MainWindow : Window
 
         Closed += (_, _) =>
         {
-            // The overlay is a second window: closing the library closes it too, so the
-            // process ends instead of leaving a picture-in-picture with no app behind it.
-            CloseMiniPlayer();
-            Playback.Shutdown();
-            _taskbar?.Dispose();
-            _tray?.Dispose();
-            _smtc.Dispose();
-            _current = null;
+            // A WinUI app keeps its message loop (and its XAML heap) alive after the last
+            // window closes; Application.Exit alone still left a windowless process behind,
+            // growing by 10-24 MB a minute. Closing the window is the listener quitting:
+            // clean up once, then end the process.
+            try
+            {
+                Shutdown();
+            }
+            catch (Exception error)
+            {
+                App.WriteError("closing Koda", error);
+            }
+            finally
+            {
+                Environment.Exit(0);
+            }
         };
     }
 
@@ -1250,13 +1259,39 @@ public sealed partial class MainWindow : Window
 
     private void ExitApplication()
     {
-        WindowPlacement.Save(Handle);
+        try
+        {
+            WindowPlacement.Save(Handle);
+            Shutdown();
+        }
+        catch (Exception error)
+        {
+            App.WriteError("exiting Koda", error);
+        }
+        finally
+        {
+            Environment.Exit(0);
+        }
+    }
+
+    /// <summary>Hands the shell integrations back once, whether the listener chose Exit
+    /// or closed the window with close-to-tray off. The guard keeps the Closed handler
+    /// from disposing the engine a second time after ExitApplication already did.</summary>
+    private void Shutdown()
+    {
+        if (_shutdown)
+        {
+            return;
+        }
+
+        _shutdown = true;
         CloseMiniPlayer();
         Playback.Shutdown();
         _taskbar?.Dispose();
         _tray?.Dispose();
         _smtc.Dispose();
-        Application.Current.Exit();
+        App.ForgetShell(this);
+        _current = null;
     }
 
     /// <summary>The end of a Windows session: keep the queue, the library and the

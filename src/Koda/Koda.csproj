@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!-- Koda for Windows: WinUI 3, unpackaged. Scaffold phase; see docs\windows.md for the stack decision
-       (Windows App SDK 2.5.1 stable, TFM net10.0-windows, Windows 11 min 10.0.22000.0, CLI-first local loop). -->
+       (Windows App SDK 2.5.1 components, TFM net10.0-windows, Windows 11 min 10.0.22000.0, CLI-first local loop). -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
@@ -21,6 +21,10 @@
     <WindowsPackageType>None</WindowsPackageType>
     <!-- Carry the Windows App SDK runtime inside the app so unpackaged launch needs no runtime install. -->
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <!-- Keep .NET satellite resources to English; the app has no translations. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- The installer packages the publish folder wholesale; symbols are not for shipping. -->
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- Program.cs is the entry point: single-instancing has to be decided before XAML starts. -->
@@ -28,7 +32,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+    <!-- The component packages, not the metapackage: the metapackage also brings
+         AI, ML (onnxruntime + DirectML), Search and Widgets, which Koda never uses.
+         WinUI pulls Foundation, Interactive Experiences and Base; DWriteCore is
+         separate. Together they are the closure this app actually needs. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.9" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.9" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.DWrite" Version="2.1.0" />
   </ItemGroup>
 
   <!-- The shell is wired to the engine. -->
