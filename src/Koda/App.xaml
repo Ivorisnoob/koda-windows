@@ -3,7 +3,8 @@
     x:Class="Koda.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:helpers="using:Koda.Helpers">
+    xmlns:helpers="using:Koda.Helpers"
+    xmlns:controls="using:Koda.Controls">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -62,6 +63,7 @@
                         <Border Padding="6,1" CornerRadius="4" VerticalAlignment="Center" BorderThickness="1" BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}" Visibility="{Binding IsVideo, Converter={StaticResource BoolToVisibility}}">
                             <TextBlock Text="Video" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </Border>
+                        <controls:DownloadIndicator VerticalAlignment="Center" />
                         <TextBlock MinWidth="40" TextAlignment="Right" Text="{Binding Duration, Converter={StaticResource SecondsText}}" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                     </StackPanel>
                 </Grid>

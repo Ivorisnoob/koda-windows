@@ -25,4 +25,15 @@ public static class DataPaths
             return dir;
         }
     }
+
+    /// <summary>Where lossless (FLAC) downloads are kept as standalone files, one per song.</summary>
+    public static string FlacDirectory
+    {
+        get
+        {
+            var dir = Path.Combine(Root, "flac");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
 }

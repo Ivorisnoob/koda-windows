@@ -61,6 +61,9 @@ public sealed class AudioStore
         [property: JsonPropertyName("lastUsed")] DateTimeOffset? LastUsed);
 
     private readonly string _directory;
+
+    /// <summary>Where downloaded files live.</summary>
+    public string StoreDirectory => _directory;
     private readonly string _indexFile;
     private readonly object _lock = new();
     private readonly Dictionary<string, Entry> _entries = [];

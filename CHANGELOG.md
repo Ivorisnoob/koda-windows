@@ -2,6 +2,49 @@
 
 What changed in each release of Koda for Windows, newest first.
 
+## 0.3.0 - 2026-10-29
+
+Lossless downloads, your YouTube Music library, settings you can search, and a Koda that is
+lighter on your PC.
+
+### New
+
+- **Lossless downloads.** Turn on Lossless downloads in Settings and point Koda at a lossless
+  server you run or have access to: downloads then come down as FLAC instead of YouTube's
+  streams. Koda has no server built in; it asks for the address (and a signing secret, if your
+  server uses one) the first time you turn it on, and Lossless server in Settings changes it
+  later. The files are kept in their own `flac` folder, named after the artist and song.
+- **YouTube Music sign-in.** Sign in from Settings and your likes, saved albums, playlists and
+  artists come into the library.
+- **Paste a link into search.** A YouTube or YouTube Music link plays the song with its radio, or
+  opens the album, playlist or artist.
+- **Search in Settings.** Type to find a setting: matches are highlighted, the sections that
+  don't match step aside, and there's a clear message when nothing does.
+- **Zoom.** Ctrl+Plus and Ctrl+Minus scale the content from 20% to 150%, like a browser, and Koda
+  remembers your choice. The title bar follows along.
+- **Download marks on songs.** A song row shows whether it's waiting to download, how far along
+  it is, or that it's downloaded.
+- **Next up in the player bar.** The song that plays next is shown under the one playing, and it
+  follows the queue when you shuffle or reorder it.
+- **Your Mix's songs.** Open Your Mix from Home to see every song in it, from the card or its
+  Show songs button.
+- **Global and trending on Home.** A new setting turns charts and trending songs off, so Home
+  shows only what matches your taste.
+
+### Fixed
+
+- **Closing Koda closes it.** The window used to close but leave Koda running in the background,
+  using more memory every minute. Closing the window now really quits; Close to the tray still
+  keeps it in the notification area, and the tray's Exit quits the same way.
+- **A smaller download and install.** Koda no longer carries parts of the Windows App SDK it never
+  used (its AI, machine learning, search and widgets pieces), and it keeps less in memory while
+  you browse.
+- **Lyrics.** Two singers in the same line stay on the left; only real duets switch sides.
+  Opening Now Playing from the queue no longer stacks the lyrics over it.
+- **Settings looks tidier.** Every switch sits on the right edge of its row, lined up with the
+  buttons and lists, at any text size or zoom. Searching matches setting names, not words buried
+  in a section's description.
+
 ## 0.2.0 - 2026-10-24
 
 Windows catches up with the Mac: downloads, Last.fm, crossfade, Discord, and a player that keeps

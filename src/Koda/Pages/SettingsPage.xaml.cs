@@ -2,11 +2,13 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Threading.Tasks;
 using Koda.Core;
 using Koda.Helpers;
 using Koda.Interop;
 using Koda.Services;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Documents;
@@ -82,6 +84,9 @@ public sealed partial class SettingsPage : Page
 
         AutoplaySwitch.IsOn = settings.Autoplay;
         NormalizeSwitch.IsOn = settings.NormalizesVolume;
+        LosslessDownloadsSwitch.IsOn = settings.UsesLosslessServer;
+        RefreshLosslessServer();
+        GlobalContentSwitch.IsOn = settings.ShowsGlobalContent;
         CrossfadeSwitch.IsOn = settings.Crossfades;
         CrossfadeSlider.Value = settings.CrossfadeSeconds;
         CrossfadeSlider.IsEnabled = settings.Crossfades;
@@ -209,9 +214,12 @@ public sealed partial class SettingsPage : Page
         var found = false;
         foreach (var section in IndexSections())
         {
+            // Only the section's title opens it whole. Its explanatory text is prose:
+            // matching it as a subsequence ("volume" in "The services the lyrics are
+            // asked for...") would keep a section whose settings have nothing to do
+            // with the query, and light up scattered letters while doing it.
             var headerMatch = FuzzySearch.Match(section.Header.Text, query) is not null;
-            var noteMatch = section.Notes.Exists(note => FuzzySearch.Match(note.Text, query) is not null);
-            var wholeSection = headerMatch || noteMatch;
+            var wholeSection = headerMatch;
             var anyRow = false;
             foreach (var row in section.Rows)
             {
@@ -234,11 +242,6 @@ public sealed partial class SettingsPage : Page
             if (headerMatch)
             {
                 Highlight(section.Header, query);
-            }
-
-            foreach (var note in section.Notes)
-            {
-                Highlight(note, query);
             }
 
             foreach (var row in section.Rows)
@@ -276,18 +279,17 @@ public sealed partial class SettingsPage : Page
             }
 
             var rows = new List<Grid>();
-            var notes = new List<TextBlock>();
-            CollectRows(card, rows, notes);
-            sections.Add(new SectionIndex(header, card, rows, notes));
+            CollectRows(card, rows);
+            sections.Add(new SectionIndex(header, card, rows));
             header = null;
         }
 
         return sections;
     }
 
-    /// <summary>Rows are the grids the page uses for a setting; a card's other text
-    /// (the Suggest less note, for instance) is kept so it can match the whole card.</summary>
-    private void CollectRows(DependencyObject node, List<Grid> rows, List<TextBlock> notes)
+    /// <summary>Rows are the grids the page uses for a setting. A card's other text is
+    /// explanatory prose and does not take part in the search.</summary>
+    private void CollectRows(DependencyObject node, List<Grid> rows)
     {
         if (node is Grid grid && IsRow(grid))
         {
@@ -295,21 +297,11 @@ public sealed partial class SettingsPage : Page
             return;
         }
 
-        if (node is TextBlock text)
-        {
-            if (!string.IsNullOrWhiteSpace(text.Text))
-            {
-                notes.Add(text);
-            }
-
-            return;
-        }
-
         if (node is Panel panel)
         {
             foreach (var child in panel.Children)
             {
-                CollectRows(child, rows, notes);
+                CollectRows(child, rows);
             }
 
             return;
@@ -317,7 +309,7 @@ public sealed partial class SettingsPage : Page
 
         if (node is Border border && border.Child is { } content)
         {
-            CollectRows(content, rows, notes);
+            CollectRows(content, rows);
         }
     }
 
@@ -544,7 +536,7 @@ public sealed partial class SettingsPage : Page
         }
     }
 
-    private sealed record SectionIndex(TextBlock Header, Border Card, List<Grid> Rows, List<TextBlock> Notes);
+    private sealed record SectionIndex(TextBlock Header, Border Card, List<Grid> Rows);
 
     private static string ThemeLabel(Theme theme) => theme switch
     {
@@ -568,6 +560,70 @@ public sealed partial class SettingsPage : Page
     {
         if (!_loaded) return;
         App.Settings.Update(s => s.NormalizesVolume = NormalizeSwitch.IsOn);
+    }
+
+    private async void OnLosslessDownloadsToggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        var on = LosslessDownloadsSwitch.IsOn;
+
+        // Turning it on with no server yet asks for one; backing out leaves it off.
+        if (on && string.IsNullOrWhiteSpace(App.Settings.LosslessServerUrl)
+            && !await AskLosslessServerAsync())
+        {
+            _loaded = false;
+            LosslessDownloadsSwitch.IsOn = false;
+            _loaded = true;
+            return;
+        }
+
+        App.Settings.Update(s => s.LosslessDownloads = on);
+        RefreshLosslessServer();
+    }
+
+    private async void OnLosslessServerClick(object sender, RoutedEventArgs e)
+    {
+        if (await AskLosslessServerAsync())
+        {
+            RefreshLosslessServer();
+        }
+    }
+
+    /// <summary>Asks for the server's address and secret; true when they were saved.</summary>
+    private async Task<bool> AskLosslessServerAsync()
+    {
+        var server = await Dialogs.AskLosslessServerAsync(
+            App.Settings.LosslessServerUrl, App.Settings.LosslessServerSecret);
+        if (server is not { } chosen)
+        {
+            return false;
+        }
+
+        App.Settings.Update(s =>
+        {
+            s.LosslessServerUrl = chosen.Url;
+            s.LosslessServerSecret = chosen.Secret.Length > 0 ? chosen.Secret : null;
+        });
+        RefreshLosslessServer();
+        return true;
+    }
+
+    private void RefreshLosslessServer()
+    {
+        var url = App.Settings.LosslessServerUrl;
+        var hasServer = !string.IsNullOrWhiteSpace(url);
+        LosslessServerText.Text = hasServer && Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            ? (App.Settings.LosslessServerSecret is { Length: > 0 } ? $"{uri.Host}, signed" : uri.Host)
+            : "Not set up. Lossless downloads need the address of a server to take them from.";
+        LosslessServerButton.Content = hasServer ? "Change…" : "Set up…";
+        AutomationProperties.SetName(LosslessServerButton,
+            hasServer ? "Change lossless server" : "Set up lossless server");
+    }
+
+    private void OnGlobalContentToggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        App.Settings.Update(s => s.ShowsGlobalContent = GlobalContentSwitch.IsOn);
     }
 
     private void OnCrossfadeToggled(object sender, RoutedEventArgs e)

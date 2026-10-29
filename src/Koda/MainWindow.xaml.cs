@@ -926,6 +926,7 @@ public sealed partial class MainWindow : Window
         var song = Playback.CurrentSong;
         TrackTitleText.Text = song?.Title ?? "Nothing playing";
         TrackArtistText.Text = song?.ArtistLine ?? "";
+        RefreshNextUp();
         Art.SetSource(CoverImage, song?.Artwork);
         CoverGlyph.Visibility = song?.Artwork is null ? Visibility.Visible : Visibility.Collapsed;
         LikeButton.Visibility = song is null ? Visibility.Collapsed : Visibility.Visible;
@@ -956,8 +957,17 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>What plays after this one; follows the queue as it is shuffled or reordered.</summary>
+    private void RefreshNextUp()
+    {
+        var next = Playback.CurrentSong is null ? null : Playback.NextSong;
+        NextUpText.Text = next is null ? "" : $"Next: {next.Title}";
+        NextUpText.Visibility = next is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
     private void OnQueueModesChanged()
     {
+        RefreshNextUp();
         ShuffleButton.IsChecked = Playback.Queue.IsShuffled;
         var repeat = Playback.Queue.Repeat;
         RepeatButton.IsChecked = repeat != RepeatMode.Off;

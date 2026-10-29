@@ -290,9 +290,21 @@ internal sealed class Voice : IDisposable
                 }
             }
 
-            var streamSource = await Fmp4StreamSource.CreateAsync(Read, file.Length, CancellationToken.None).ConfigureAwait(false);
-            streamSource.Closed += (_, _) => file.Dispose();
-            Attach(MediaSource.CreateFromMediaStreamSource(streamSource));
+            try
+            {
+                var streamSource = await Fmp4StreamSource.CreateAsync(Read, file.Length, CancellationToken.None).ConfigureAwait(false);
+                streamSource.Closed += (_, _) => file.Dispose();
+                Attach(MediaSource.CreateFromMediaStreamSource(streamSource));
+                return;
+            }
+            catch
+            {
+                // Not an AAC fragmented MP4 (e.g. a lossless FLAC file): hand the file
+                // to Media Foundation directly and let it decode the container.
+                file.Dispose();
+            }
+
+            Attach(MediaSource.CreateFromUri(new Uri(path)));
         }
         catch (Exception)
         {

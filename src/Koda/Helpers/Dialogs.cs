@@ -75,6 +75,69 @@ public static class Dialogs
         return await ShowAsync(dialog) == ContentDialogResult.Primary;
     }
 
+    /// <summary>Asks for the lossless server's address and, if it signs requests, its secret.
+    /// Null when the listener backed out; the address must be an http or https URL.</summary>
+    public static async Task<(string Url, string Secret)?> AskLosslessServerAsync(string? url, string? secret)
+    {
+        var caption = (Style)Application.Current.Resources["CaptionTextBlockStyle"];
+        var urlBox = new TextBox
+        {
+            Header = "Server address",
+            Text = url ?? "",
+            PlaceholderText = "https://example.com/a/your-token/",
+            InputScope = new Microsoft.UI.Xaml.Input.InputScope
+            {
+                Names = { new InputScopeName(InputScopeNameValue.Url) },
+            },
+        };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(urlBox, "Server address");
+        var secretBox = new PasswordBox
+        {
+            Header = "Secret (optional)",
+            Password = secret ?? "",
+            PlaceholderText = "Only if your server signs requests",
+        };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(secretBox, "Secret");
+        var problem = new TextBlock
+        {
+            Text = "Enter the full address, starting with https://.",
+            Style = caption,
+            Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SystemFillColorCriticalBrush"],
+            Visibility = Visibility.Collapsed,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        var panel = new StackPanel { Spacing = 12, MinWidth = 360 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Lossless downloads come from a server you run or have access to. Koda has none built in.",
+            Style = caption,
+            Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+            TextWrapping = TextWrapping.Wrap,
+        });
+        panel.Children.Add(urlBox);
+        panel.Children.Add(problem);
+        panel.Children.Add(secretBox);
+
+        var dialog = Build("Lossless Server", panel, "Save", close: "Cancel");
+        dialog.Opened += (_, _) => urlBox.Focus(FocusState.Programmatic);
+        dialog.PrimaryButtonClick += (_, args) =>
+        {
+            if (!LosslessServer.IsValidUrl(urlBox.Text))
+            {
+                args.Cancel = true;
+                problem.Visibility = Visibility.Visible;
+                urlBox.Focus(FocusState.Programmatic);
+            }
+        };
+
+        if (await ShowAsync(dialog) != ContentDialogResult.Primary)
+        {
+            return null;
+        }
+
+        return (urlBox.Text.Trim(), secretBox.Password.Trim());
+    }
+
     private static async Task<string?> AskAsync(string title, string initial, string action, string label, string note)
     {
         var input = new TextBox

@@ -100,6 +100,7 @@ public sealed class PlaybackService
     public event Action<QueueItem, double>? ItemHeard;
 
     public Song? CurrentSong => _queue.Current?.Song;
+    public Song? NextSong => _queue.PeekNext(automatic: false)?.Song;
 
     public PlayQueue Queue => _queue;
 

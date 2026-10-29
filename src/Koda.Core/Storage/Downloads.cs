@@ -52,6 +52,10 @@ public sealed class Downloads : IDisposable
     /// <summary>A song's state or the list of downloads changed.</summary>
     public event Action? Changed;
 
+    /// <summary>Where each lossless song's FLAC file is, by song id.</summary>
+    private readonly string _losslessIndexFile = Path.Combine(DataPaths.FlacDirectory, "index.json");
+    private readonly SemaphoreSlim _losslessSlots = new(Parallel);
+
     /// <param name="resolve">The song's stream (YouTubeMusic.StreamAsync).</param>
     /// <param name="streamFailed">Tell the resolver a URL was refused (YouTubeMusic.StreamFailedAsync).</param>
     /// <param name="handler">The transport; tests pass a recorded one.</param>
@@ -73,6 +77,36 @@ public sealed class Downloads : IDisposable
             _states[song.Id] = entry.IsComplete ? State.Downloaded : State.Waiting;
             if (!entry.IsComplete) _queue.Add(song.Id);
         }
+
+        // Restore the on-disk lossless file mapping.
+        try
+        {
+            if (File.Exists(_losslessIndexFile))
+            {
+                var json = File.ReadAllText(_losslessIndexFile);
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                {
+                    var p = prop.Value.GetString();
+                    if (!string.IsNullOrWhiteSpace(p)) _losslessFiles[prop.Name] = p!;
+                }
+            }
+        }
+        catch { }
+    }
+
+    private void SaveLosslessIndex()
+    {
+        try
+        {
+            var obj = new System.Text.Json.Nodes.JsonObject();
+            lock (_lock)
+            {
+                foreach (var (id, path) in _losslessFiles) obj[id] = path;
+            }
+            File.WriteAllText(_losslessIndexFile, obj.ToJsonString());
+        }
+        catch { }
     }
 
     /// <summary>Start fetching what the last session left unfinished.</summary>
@@ -86,8 +120,25 @@ public sealed class Downloads : IDisposable
     /// <summary>Downloaded songs and those on their way, most recently added first.</summary>
     public Song[] Songs { get { lock (_lock) return [.. _songs]; } }
 
+    private readonly Dictionary<string, string> _losslessFiles = [];
+    private static readonly char[] InvalidFileNameChars = Path.GetInvalidFileNameChars();
+
     /// <summary>Space the downloads take on disk.</summary>
-    public long Bytes => _store.DownloadBytes;
+    public long Bytes
+    {
+        get
+        {
+            var total = _store.DownloadBytes;
+            lock (_lock)
+            {
+                foreach (var path in _losslessFiles.Values)
+                {
+                    try { total += new FileInfo(path).Length; } catch { }
+                }
+            }
+            return total;
+        }
+    }
 
     public State StateOf(Song song)
     {
@@ -130,19 +181,163 @@ public sealed class Downloads : IDisposable
 
     public void Download(IEnumerable<Song> songs)
     {
+        var fresh = songs.ToArray();
+        if (fresh.Length == 0) return;
+
+        // Lossless download from the listener's server when they have set one up.
+        if (Settings.Current.UsesLosslessServer)
+        {
+            foreach (var song in fresh)
+            {
+                _ = Task.Run(() => DownloadLosslessAsync(song));
+            }
+            return;
+        }
+
         lock (_lock)
         {
             var seen = new HashSet<string>();
-            var fresh = songs.Where(s => _states.GetValueOrDefault(s.Id, State.None).Phase == Phase.None && seen.Add(s.Id)).ToArray();
-            if (fresh.Length == 0) return;
-            _store.MarkDownloaded(fresh, DateTimeOffset.UtcNow);
-            foreach (var song in fresh) _states[song.Id] = State.Waiting;
-            _songs.InsertRange(0, fresh);
-            _queue.AddRange(fresh.Select(s => s.Id));
+            var newSongs = fresh.Where(s => _states.GetValueOrDefault(s.Id, State.None).Phase == Phase.None && seen.Add(s.Id)).ToArray();
+            if (newSongs.Length == 0) return;
+            _store.MarkDownloaded(newSongs, DateTimeOffset.UtcNow);
+            foreach (var song in newSongs) _states[song.Id] = State.Waiting;
+            _songs.InsertRange(0, newSongs);
+            _queue.AddRange(newSongs.Select(s => s.Id));
             Pump();
         }
 
         RaiseChanged();
+    }
+
+    private async Task DownloadLosslessAsync(Song song)
+    {
+        // Already on its way or here.
+        lock (_lock)
+        {
+            if (_states.GetValueOrDefault(song.Id, State.None).Phase != Phase.None) return;
+            _states[song.Id] = State.Waiting;
+            if (!_songs.Any(s => s.Id == song.Id)) _songs.Insert(0, song);
+        }
+        _store.MarkDownloaded(new[] { song }, DateTimeOffset.UtcNow);
+        RaiseChanged();
+
+        var cancel = new CancellationTokenSource();
+        lock (_lock) { _running[song.Id] = cancel; }
+
+        LosslessServer? server = null;
+        string? path = null;
+        var kept = false;
+        var holdsSlot = false;
+        try
+        {
+            // An album at a time would open dozens of downloads at once: take turns.
+            await _losslessSlots.WaitAsync(cancel.Token).ConfigureAwait(false);
+            holdsSlot = true;
+
+            server = new LosslessServer(Settings.Current.LosslessServerUrl!, Settings.Current.LosslessServerSecret);
+            var results = await server.SearchAsync($"{song.Title} {song.ArtistLine}", "hi_res_lossless", cancel.Token)
+                .ConfigureAwait(false);
+            if (results.Count == 0)
+            {
+                Forget(song.Id);
+                return;
+            }
+
+            // The closest title, by the same artist where the server says who it is.
+            var match = results.FirstOrDefault(r =>
+                    r.Title.Contains(song.Title, StringComparison.OrdinalIgnoreCase)
+                    && song.ArtistLine.Contains(r.Artist, StringComparison.OrdinalIgnoreCase))
+                ?? results.FirstOrDefault(r => r.Title.Contains(song.Title, StringComparison.OrdinalIgnoreCase))
+                ?? results[0];
+
+            _store.BeginUse(song.Id);
+            try
+            {
+                // A dedicated folder for lossless files, named after the song.
+                var baseName = SanitizeFileName(string.IsNullOrWhiteSpace(song.ArtistLine)
+                    ? song.Title
+                    : $"{song.ArtistLine} - {song.Title}");
+                path = UniquePath(DataPaths.FlacDirectory, baseName, ".flac");
+
+                // Reported in place, not posted: a late report must not undo Downloaded.
+                var progress = new InlineProgress(p => SetState(song.Id, new State(Phase.Downloading, p)));
+                await server.DownloadAsync(match.Id, path, progress, cancel.Token).ConfigureAwait(false);
+
+                // Read before Prepare: Prepare discards the file when the length changes.
+                var data = await File.ReadAllBytesAsync(path, cancel.Token).ConfigureAwait(false);
+                var stream = new ResolvedStream(song.Id, new Uri(path),
+                    "Koda-Lossless/1.0", 0, data.LongLength, song.Duration, null, null);
+
+                _store.Prepare(stream, song);
+                _store.Write(data, 0, song.Id);
+
+                lock (_lock)
+                {
+                    // Removed while the last bytes came: the file goes with it.
+                    if (_states.ContainsKey(song.Id))
+                    {
+                        _states[song.Id] = State.Downloaded;
+                        _losslessFiles[song.Id] = path;
+                        kept = true;
+                    }
+                }
+
+                if (kept)
+                {
+                    SaveLosslessIndex();
+                    RaiseChanged();
+                }
+            }
+            finally
+            {
+                _store.EndUse(song.Id);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Removed while downloading: Remove() has already let go of the song.
+        }
+        catch (Exception)
+        {
+            // The server refused, or the file did not arrive whole: the song is not downloaded.
+            Forget(song.Id);
+        }
+        finally
+        {
+            if (holdsSlot) _losslessSlots.Release();
+            if (!kept && path is not null)
+            {
+                try { File.Delete(path); } catch { }
+            }
+
+            server?.Dispose();
+            cancel.Dispose();
+            lock (_lock)
+            {
+                if (_running.TryGetValue(song.Id, out var current) && current == cancel) _running.Remove(song.Id);
+            }
+        }
+    }
+
+    /// <summary>Drops a lossless download that did not happen, here and in the store.</summary>
+    private void Forget(string id)
+    {
+        lock (_lock)
+        {
+            _states.Remove(id);
+            _songs.RemoveAll(s => s.Id == id);
+            _losslessFiles.Remove(id);
+        }
+
+        SaveLosslessIndex();
+        _store.RemoveDownloads([id]);
+        RaiseChanged();
+    }
+
+    /// <summary>Progress reported on the reporting thread, in order.</summary>
+    private sealed class InlineProgress(Action<double> report) : IProgress<double>
+    {
+        public void Report(double value) => report(value);
     }
 
     public void Remove(IEnumerable<Song> songs)
@@ -158,6 +353,14 @@ public sealed class Downloads : IDisposable
 
             _queue.RemoveAll(ids.Contains);
             _songs.RemoveAll(s => ids.Contains(s.Id));
+            foreach (var id in ids)
+            {
+                if (_losslessFiles.Remove(id, out var path))
+                {
+                    try { File.Delete(path); } catch { }
+                }
+            }
+            SaveLosslessIndex();
             _store.RemoveDownloads([.. ids]);
             Pump();
         }
@@ -323,6 +526,30 @@ public sealed class Downloads : IDisposable
         {
             // A listener that throws must not stop a download.
         }
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        var cleaned = new string(name.Select(c => InvalidFileNameChars.Contains(c) ? '_' : c).ToArray()).Trim();
+        // Collapse whitespace and trim trailing dots/spaces (Windows).
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"\s+", " ");
+        cleaned = cleaned.TrimEnd('.', ' ');
+        if (string.IsNullOrWhiteSpace(cleaned)) cleaned = "download";
+        // Keep paths short-ish.
+        if (cleaned.Length > 120) cleaned = cleaned[..120].TrimEnd('.', ' ');
+        return cleaned;
+    }
+
+    private static string UniquePath(string directory, string baseName, string extension)
+    {
+        var path = Path.Combine(directory, baseName + extension);
+        if (!File.Exists(path)) return path;
+        for (var i = 1; i < 1000; i++)
+        {
+            path = Path.Combine(directory, $"{baseName} ({i}){extension}");
+            if (!File.Exists(path)) return path;
+        }
+        return Path.Combine(directory, $"{baseName} ({Guid.NewGuid():N}){extension}");
     }
 
     public void Dispose()

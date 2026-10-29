@@ -280,6 +280,13 @@
                                 TextWrapping="NoWrap"
                                 Tapped="OnArtistTapped"
                                 AutomationProperties.Name="Track artist" />
+                            <TextBlock
+                                x:Name="NextUpText"
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                TextTrimming="CharacterEllipsis"
+                                TextWrapping="NoWrap"
+                                Visibility="Collapsed" />
                         </StackPanel>
                         <Button
                             x:Name="LikeButton"

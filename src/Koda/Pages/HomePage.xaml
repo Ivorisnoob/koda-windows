@@ -39,7 +39,7 @@
                     </Grid.RowDefinitions>
 
                     <ContentPresenter x:Name="MixSkeleton" />
-                    <Grid x:Name="MixCard" Height="300" CornerRadius="20" Visibility="Collapsed">
+                    <Grid x:Name="MixCard" Height="300" CornerRadius="20" Visibility="Collapsed" Tapped="OnMixCardTapped">
                         <Grid.Background>
                             <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
                                 <GradientStop x:Name="MixStop0" Color="#FF5A4FCF" Offset="0" />
@@ -81,6 +81,9 @@
                                 </Button>
                                 <Button Click="OnMixShuffleClick" Padding="12,7" Background="#33FFFFFF" Foreground="White" BorderThickness="0" ToolTipService.ToolTip="Shuffle">
                                     <FontIcon Glyph="&#xE8B1;" FontSize="14" />
+                                </Button>
+                                <Button Click="OnMixSongsClick" Padding="12,7" Background="#33FFFFFF" Foreground="White" BorderThickness="0" ToolTipService.ToolTip="Show songs" AutomationProperties.Name="Show the mix's songs">
+                                    <FontIcon Glyph="&#xE8FD;" FontSize="14" />
                                 </Button>
                             </StackPanel>
                         </StackPanel>

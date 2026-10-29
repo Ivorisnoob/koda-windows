@@ -94,7 +94,8 @@ See [CHANGELOG.md](CHANGELOG.md) for what changed in each release.
 ## Where your data lives
 
 Settings, library, downloads and the listening cache live in your per-user local app data,
-`%LOCALAPPDATA%\Koda`. Set `KODA_DATA` to keep them somewhere else, for example beside a portable
+`%LOCALAPPDATA%\Koda`. Lossless (FLAC) downloads get their own folder, `%LOCALAPPDATA%\Koda\flac`,
+named after the song. Set `KODA_DATA` to keep them somewhere else, for example beside a portable
 copy:
 
 ```powershell

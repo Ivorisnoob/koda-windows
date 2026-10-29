@@ -11,7 +11,7 @@
     <AssemblyName>Koda</AssemblyName>
     <!-- The About row reads the assembly version; keep it the same as the installer's
          identity (Package.appxmanifest), or the two disagree. -->
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
     <Platforms>x86;x64;ARM64</Platforms>

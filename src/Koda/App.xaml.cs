@@ -54,6 +54,8 @@ public partial class App : Application
     /// <summary>App volume 0..100, remembered across launches with the shell settings.</summary>
     public static double Volume => Koda.Core.Settings.Current.Volume;
 
+    public static Koda.Core.Song[] MixSongs { get; set; } = [];
+
     /// <summary>The listener's settings.</summary>
     public static Koda.Core.Settings Settings => Koda.Core.Settings.Current;
 

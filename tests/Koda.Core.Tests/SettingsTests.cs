@@ -32,6 +32,33 @@ public class SettingsTests
     }
 
     [Fact]
+    public void LosslessDownloadsHaveNoServerUntilOneIsTypedIn()
+    {
+        var settings = Settings.Load(Path.Combine(Fixtures.Scratch, $"settings-lossless-{Guid.NewGuid():N}.json"));
+
+        Assert.Null(settings.LosslessServerUrl);
+        Assert.Null(settings.LosslessServerSecret);
+
+        // Turned on with nowhere to download from, it stays the ordinary download.
+        settings.LosslessDownloads = true;
+        Assert.False(settings.UsesLosslessServer);
+
+        settings.LosslessServerUrl = "https://example.com/a/token/";
+        Assert.True(settings.UsesLosslessServer);
+    }
+
+    [Theory]
+    [InlineData("https://example.com/a/token/", true)]
+    [InlineData("http://192.168.1.4:8080/a/token", true)]
+    [InlineData("  https://example.com/  ", true)]
+    [InlineData("example.com/a/token", false)]
+    [InlineData("ftp://example.com/", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void ALosslessServerIsAnHttpAddress(string? url, bool valid) =>
+        Assert.Equal(valid, LosslessServer.IsValidUrl(url));
+
+    [Fact]
     public void TheChoicesSurviveASaveAndLoad()
     {
         var settings = new Settings

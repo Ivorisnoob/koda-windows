@@ -207,8 +207,25 @@ public sealed class Settings
     /// <summary>How much the window's content is scaled, as a browser's zoom: 1 is 100%.</summary>
     public double UiZoom { get; set; } = 1;
 
+    /// <summary>Show global charts and trending songs on Home, even when they don't match your taste.</summary>
+    public bool ShowsGlobalContent { get; set; } = true;
+
     /// <summary>The audio render device Koda plays through; null is the system default.</summary>
     public string? AudioDeviceId { get; set; }
+
+    /// <summary>Download lossless FLAC from the listener's lossless server instead of YouTube streams.
+    /// Only takes effect once <see cref="LosslessServerUrl"/> is set.</summary>
+    public bool LosslessDownloads { get; set; }
+
+    /// <summary>The lossless server's address, typed in by the listener; null until they do.</summary>
+    public string? LosslessServerUrl { get; set; }
+
+    /// <summary>The lossless server's signing secret, if it asks for one; null signs nothing.</summary>
+    public string? LosslessServerSecret { get; set; }
+
+    /// <summary>True when lossless downloads are on and there is a server to take them from.</summary>
+    [JsonIgnore]
+    public bool UsesLosslessServer => LosslessDownloads && !string.IsNullOrWhiteSpace(LosslessServerUrl);
 
     /// <summary>Raised when a setting changes, so what listens to it can follow.</summary>
     public event Action<Settings>? Changed;

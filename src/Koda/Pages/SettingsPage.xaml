@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:helpers="using:Koda.Helpers"
     mc:Ignorable="d">
     <Page.Resources>
         <!-- A Windows Settings card: a hairline border, the card fill, and 4px corners.
@@ -26,11 +27,12 @@
             <Setter Property="Margin" Value="16,0" />
         </Style>
         <!-- The switch's track sits at the row's right edge, on the same line as the
-             buttons and combos. The default template reserves 12px for content after the
-             track; with no content, that space is pulled back out. -->
+             buttons and combos. The template keeps room for On/Off text after the track;
+             ToggleEdge measures that room and pulls it back out. -->
         <Style x:Key="SettingsToggle" TargetType="ToggleSwitch">
             <Setter Property="MinWidth" Value="0" />
-            <Setter Property="Margin" Value="0,0,-12,0" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+            <Setter Property="helpers:ToggleEdge.HugsRight" Value="True" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="OffContent" Value="" />
             <Setter Property="OnContent" Value="" />
@@ -127,6 +129,49 @@
                             Style="{StaticResource SettingsToggle}"
                             AutomationProperties.Name="Normalize volume"
                             Toggled="OnNormalizeToggled" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Lossless downloads" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                Text="Download lossless FLAC from your own server instead of YouTube streams."
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            x:Name="LosslessDownloadsSwitch"
+                            Grid.Column="1"
+                            Style="{StaticResource SettingsToggle}"
+                            AutomationProperties.Name="Lossless downloads"
+                            Toggled="OnLosslessDownloadsToggled" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Lossless server" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock
+                                x:Name="LosslessServerText"
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <Button
+                            x:Name="LosslessServerButton"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Content="Set up…"
+                            AutomationProperties.Name="Set up lossless server"
+                            Click="OnLosslessServerClick" />
                     </Grid>
                     <Border Style="{StaticResource SettingsDivider}" />
                     <Grid Style="{StaticResource SettingsRow}">
@@ -705,6 +750,31 @@
                         Margin="16,14,16,14" />
                     <StackPanel x:Name="SuggestLessList" />
                 </StackPanel>
+            </Border>
+
+            <!-- Home -->
+            <TextBlock Text="Home" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" Tag="section" />
+            <Border Style="{StaticResource SettingsCard}">
+                <Grid Style="{StaticResource SettingsRow}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center" Spacing="2">
+                        <TextBlock Text="Global and trending" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                        <TextBlock
+                            Text="Charts and trending songs on Home. Off, Home shows only what matches your taste."
+                            Style="{ThemeResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                    <ToggleSwitch
+                        x:Name="GlobalContentSwitch"
+                        Grid.Column="1"
+                        Style="{StaticResource SettingsToggle}"
+                        AutomationProperties.Name="Global and trending"
+                        Toggled="OnGlobalContentToggled" />
+                </Grid>
             </Border>
 
             <!-- YouTube Music -->

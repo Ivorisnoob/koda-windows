@@ -45,11 +45,17 @@ public sealed partial class SongsPage : Page
             _source = source;
         }
 
+        if (_source == "mix")
+        {
+            _songs = App.MixSongs;
+        }
+
         HeroTitle.Text = _source switch
         {
             "recent" => "Recently Played",
             "downloads" => "Downloads",
             "offline" => "Ready Offline",
+            "mix" => "Your Mix",
             _ => "Liked Songs",
         };
         var (glyph, tint) = _source switch
@@ -120,6 +126,7 @@ public sealed partial class SongsPage : Page
             "recent" => App.Library.Recent,
             "downloads" => App.Downloads.Songs,
             "offline" => App.AudioStore.CompleteSongs,
+            "mix" => App.MixSongs,
             _ => SortedLiked(),
         };
 

@@ -9,6 +9,7 @@ using Koda.Helpers;
 using Koda.Playback;
 using Koda.Services;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 
@@ -35,6 +36,7 @@ public sealed partial class HomePage : Page
 
     private Saved? _state;
     private bool _loading;
+    private Mix? _mix;
     private int _pickCount = 12;
     private double _topWidth;
 
@@ -274,9 +276,11 @@ public sealed partial class HomePage : Page
     {
         Error.Visibility = Visibility.Collapsed;
         ShowMix(state.Mix);
+        var showGlobal = App.Settings.ShowsGlobalContent;
         PicksStrapline.Text = state.PicksPersonal ? "Start with these" : "Trending now";
-        PicksPanel.Visibility = state.Picks.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-        Picks.ItemsSource = state.Picks.Take(_pickCount).ToArray();
+        var showPicks = state.Picks.Length > 0 && (state.PicksPersonal || showGlobal);
+        PicksPanel.Visibility = showPicks ? Visibility.Visible : Visibility.Collapsed;
+        Picks.ItemsSource = showPicks ? state.Picks.Take(_pickCount).ToArray() : [];
 
         var shelves = new List<ShelfView>();
         var recent = App.Library.Recent;
@@ -292,17 +296,25 @@ public sealed partial class HomePage : Page
                 new MusicItem.ArtistRecord(new ArtistSummary(a.Id!, a.Name, null, state.ArtistPhotos.GetValueOrDefault(a.Id!)))) with { Subtitle = "" })]));
         }
 
-        if (state.Charts.Length > 0)
+        if (App.Settings.ShowsGlobalContent && state.Charts.Length > 0)
         {
             shelves.Add(new ShelfView("Charts", "Global and near you", [.. state.Charts.Select(p => CardItem.From(new MusicItem.PlaylistRecord(p)))]));
         }
 
-        shelves.AddRange(state.YouTube.Select(ShelfView.From));
+        var ytShelves = state.YouTube;
+        if (!App.Settings.ShowsGlobalContent)
+        {
+            ytShelves = ytShelves.Where(s => !s.Title.Contains("trend", StringComparison.OrdinalIgnoreCase)
+                && !s.Title.Contains("chart", StringComparison.OrdinalIgnoreCase)
+                && !s.Title.Contains("global", StringComparison.OrdinalIgnoreCase)).ToArray();
+        }
+        shelves.AddRange(ytShelves.Select(ShelfView.From));
         Shelves.Shelves = shelves;
     }
 
     private void ShowMix(Mix? mix)
     {
+        _mix = mix;
         MixCard.Visibility = mix is null ? Visibility.Collapsed : Visibility.Visible;
         if (mix is null)
         {
@@ -403,6 +415,20 @@ public sealed partial class HomePage : Page
     private void OnMixShuffleClick(object sender, RoutedEventArgs e)
     {
         if (_state?.Mix is { } mix) _ = PlaybackService.Instance.ShuffleAsync(mix.Songs);
+    }
+
+    // The card opens the mix's songs; its Play and Shuffle buttons handle their own taps.
+    private void OnMixCardTapped(object sender, TappedRoutedEventArgs e) => OpenMix();
+
+    private void OnMixSongsClick(object sender, RoutedEventArgs e) => OpenMix();
+
+    private void OpenMix()
+    {
+        if (_mix is { Songs.Length: > 0 } mix)
+        {
+            App.MixSongs = mix.Songs;
+            Navigator.Go(typeof(SongsPage), "mix");
+        }
     }
 
     // MARK: snapshot
