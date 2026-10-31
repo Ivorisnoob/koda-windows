@@ -42,7 +42,7 @@ public partial class App : Application
     public static Koda.Core.Discord.DiscordPresence Discord { get; } = new();
 
     /// <summary>Likes, saved collections, history, stats: library.json in the data root.</summary>
-    public static Koda.Core.Library Library { get; } = new(DataDirectory);
+    public static Koda.Core.Library Library { get; } = new(Koda.Services.Profiles.ActiveFolder);
 
     /// <summary>The YouTube Music account: the session in the Windows Credential Manager, and
     /// the library's sync with it.</summary>
@@ -136,7 +136,9 @@ public partial class App : Application
         var account = Koda.Services.EngineHost.Account;
         playback.ItemHeard += (item, seconds) =>
             account.ItemHeard(item.Id, item.Song.Id, item.Song.Duration, seconds);
+        account.Changed += () => Shell?.DispatcherQueue.TryEnqueue(Koda.Services.Profiles.FollowAccount);
         account.Start();
+        Koda.Services.Profiles.FollowAccount();
 
         // The Discord card follows what plays; it only shows while the listener has it on and
         // listening history is on.

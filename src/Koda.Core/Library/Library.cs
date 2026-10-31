@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Koda.Core.Video;
+using VideoModel = Koda.Core.Video.Video;
 
 namespace Koda.Core;
 
@@ -86,8 +88,8 @@ public sealed class Library
     private const string BackupFormat = "koda-ios-library";
 
     private readonly object _lock = new();
-    private readonly string? _file;
-    private readonly string? _historyFile;
+    private string? _file;
+    private string? _historyFile;
     private readonly List<PlayEvent> _history = [];
     private Snapshot _s = new();
     /// <summary>Listening time arrives every few seconds; it is written with the next change or <see cref="Flush"/>.</summary>
@@ -102,6 +104,28 @@ public sealed class Library
         _historyFile = directory is null ? null : Path.Combine(directory, "history.json");
         Load();
         LoadHistory();
+    }
+
+    /// <summary>The library of another profile takes over: this one is written out, the other
+    /// read in, and everything drawn from it redraws.</summary>
+    public void Open(string directory)
+    {
+        Flush();
+        WriteHistoryNow();
+        lock (_lock)
+        {
+            // A history write still waiting belongs to the library just closed.
+            _historySaveVersion++;
+            _file = Path.Combine(directory, "library.json");
+            _historyFile = Path.Combine(directory, "history.json");
+            _s = new Snapshot();
+            _history.Clear();
+            _hasUnsavedListening = false;
+            Load();
+            LoadHistory();
+        }
+
+        Changed?.Invoke();
     }
 
     // MARK: Reading
@@ -195,13 +219,68 @@ public sealed class Library
 
     public void ClearHistory()
     {
-        Edit(s => s.Recent.Clear());
+        Edit(s =>
+        {
+            s.Recent.Clear();
+            s.Watched.Clear();
+            s.VideoProgress.Clear();
+        });
         lock (_lock)
         {
             _history.Clear();
         }
 
         ScheduleHistorySave();
+    }
+
+    // MARK: Videos
+
+    /// <summary>Videos watched, most recent first, one entry each: Continue Watching, and what a
+    /// signed-out video Home is built from.</summary>
+    public VideoModel[] Watched
+    {
+        get
+        {
+            lock (_lock) return [.. _s.Watched];
+        }
+    }
+
+    /// <summary>How far each watched video got, by id: the bars on its frame and where it starts again.</summary>
+    public VideoProgress? ProgressOf(string videoId)
+    {
+        lock (_lock) return _s.VideoProgress.TryGetValue(videoId, out var progress) ? progress : null;
+    }
+
+    /// <summary>Files a video as watched, newest first, and forgets the oldest past the limit.</summary>
+    public void RecordWatch(VideoModel video) => Edit(s =>
+    {
+        s.Watched.RemoveAll(v => v.Id == video.Id);
+        s.Watched.Insert(0, video);
+        if (s.Watched.Count > 200)
+        {
+            foreach (var dropped in s.Watched.Skip(200)) s.VideoProgress.Remove(dropped.Id);
+            s.Watched.RemoveRange(200, s.Watched.Count - 200);
+        }
+    });
+
+    public void RemoveWatched(string id) => Edit(s =>
+    {
+        s.Watched.RemoveAll(v => v.Id == id);
+        s.VideoProgress.Remove(id);
+    });
+
+    /// <summary>Where a watched video got to. Only for one in <see cref="Watched"/>: the bar
+    /// belongs to its entry there.</summary>
+    public void SetVideoProgress(double position, double duration, string videoId)
+    {
+        if (duration <= 0 || !double.IsFinite(position) || !double.IsFinite(duration)) return;
+        Edit(s =>
+        {
+            if (!s.Watched.Exists(v => v.Id == videoId)) return;
+            var progress = new VideoProgress(Math.Clamp(position, 0, duration), duration);
+            if (s.VideoProgress.TryGetValue(videoId, out var old) && old == progress) return;
+            s.VideoProgress[videoId] = progress;
+        });
     }
 
     /// <summary>Forget one play. A song with no play left in the history leaves Recently Played too.</summary>
@@ -469,6 +548,9 @@ public sealed class Library
         public Dictionary<string, SongStats> SongStats { get; set; } = [];
         public Dictionary<string, double> DailyListening { get; set; } = [];
         public Dictionary<string, double> LyricsOffsets { get; set; } = [];
+        /// <summary>Videos watched, most recent first; and how far each got, by id.</summary>
+        public List<VideoModel> Watched { get; set; } = [];
+        public Dictionary<string, VideoProgress> VideoProgress { get; set; } = [];
         /// <summary>The newest play taken from a Koda for Android backup, so importing the same
         /// backup, or a later one that repeats its history, never counts a play twice.</summary>
         public DateTimeOffset? AndroidPlaysImportedThrough { get; set; }
@@ -599,6 +681,8 @@ public sealed class Library
         s.SongStats ??= [];
         s.DailyListening ??= [];
         s.LyricsOffsets ??= [];
+        s.Watched ??= [];
+        s.VideoProgress ??= [];
         s.NotInterested ??= new();
         s.NotInterested.Songs ??= [];
         s.NotInterested.Artists ??= [];

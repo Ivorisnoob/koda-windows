@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Koda.Pages.VideoListPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Koda.Controls">
+    <Grid Padding="26,16,20,0" RowSpacing="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel VerticalAlignment="Center" Spacing="2">
+                <TextBlock Text="Videos" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <TextBlock x:Name="HeroTitle" Style="{ThemeResource TitleTextBlockStyle}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+            </StackPanel>
+            <Button x:Name="ClearButton" Grid.Column="1" Content="Clear history" VerticalAlignment="Center" Visibility="Collapsed" Click="OnClearClick" />
+        </Grid>
+
+        <GridView
+            x:Name="Cards"
+            Grid.Row="1"
+            Margin="-6,0"
+            Padding="0,0,0,28"
+            SelectionMode="None"
+            IsItemClickEnabled="True"
+            ItemClick="OnCardClick"
+            ItemContainerStyle="{StaticResource VideoCardItemStyle}"
+            Visibility="Collapsed">
+            <GridView.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <ItemsWrapGrid Orientation="Horizontal" />
+                </ItemsPanelTemplate>
+            </GridView.ItemsPanel>
+            <GridView.Header>
+                <StackPanel x:Name="ChannelsHeader" Visibility="Collapsed" Spacing="6" Margin="6,0,6,12">
+                    <TextBlock Text="Channels" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                    <ListView
+                        x:Name="ChannelRow"
+                        Height="190"
+                        Margin="-6,0,0,0"
+                        SelectionMode="None"
+                        IsItemClickEnabled="True"
+                        ItemClick="OnChannelClick"
+                        ItemTemplate="{StaticResource ChannelCardTemplate}"
+                        ScrollViewer.HorizontalScrollMode="Enabled"
+                        ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                        ScrollViewer.VerticalScrollMode="Disabled"
+                        AutomationProperties.Name="Channels">
+                        <ListView.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsStackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ListView.ItemsPanel>
+                    </ListView>
+                </StackPanel>
+            </GridView.Header>
+        </GridView>
+
+        <ContentControl x:Name="LoadingView" Grid.Row="1" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Top" IsTabStop="False" />
+        <controls:ErrorState x:Name="Status" Grid.Row="1" Visibility="Collapsed" />
+    </Grid>
+</Page>

@@ -387,6 +387,18 @@ public sealed class PlaybackService
         PlayStateChanged?.Invoke();
     }
 
+    /// <summary>Stops the songs, for a video taking the sound (the video player calls this).</summary>
+    public void Pause()
+    {
+        if (_wantsToPlay) Toggle();
+    }
+
+    /// <summary>Starts the songs again, for a video stepping aside.</summary>
+    public void Play()
+    {
+        if (!_wantsToPlay && CurrentSong is not null) Toggle();
+    }
+
     /// <summary>With no speakers or headphones connected there is nothing to play through: the
     /// listener is told at once, rather than left watching a song load that can never sound.</summary>
     private bool EnsureOutput()

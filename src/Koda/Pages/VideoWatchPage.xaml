@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Koda.Pages.VideoWatchPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:helpers="using:Koda.Helpers"
+    xmlns:controls="using:Koda.Controls">
+
+    <Page.Resources>
+        <Style x:Key="PlayerButton" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+            <Setter Property="Width" Value="40" />
+            <Setter Property="Height" Value="40" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+    </Page.Resources>
+
+    <Grid x:Name="PageRoot" SizeChanged="OnPageSizeChanged">
+        <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled">
+            <Grid x:Name="Layout" Padding="24,12,24,28" ColumnSpacing="24" RowSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition x:Name="MainColumn" Width="*" />
+                    <ColumnDefinition x:Name="SideColumn" Width="380" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- The player. Controls fade over the picture and take dark styling whatever the
+                     app's theme, because they always sit on video. -->
+                <Grid
+                    x:Name="PlayerHost"
+                    VerticalAlignment="Top"
+                    Background="Black"
+                    CornerRadius="8"
+                    RequestedTheme="Dark"
+                    PointerMoved="OnPlayerPointerMoved"
+                    PointerExited="OnPlayerPointerExited"
+                    Tapped="OnPlayerTapped"
+                    DoubleTapped="OnPlayerDoubleTapped"
+                    AutomationProperties.Name="Video player">
+                    <Image x:Name="Poster" helpers:VideoArt.Video="{x:Null}" Stretch="Uniform" />
+                    <MediaPlayerElement
+                        x:Name="Picture"
+                        AreTransportControlsEnabled="False"
+                        Stretch="Uniform"
+                        HorizontalAlignment="Stretch"
+                        VerticalAlignment="Stretch"
+                        IsHitTestVisible="False" />
+
+                    <ProgressRing x:Name="Busy" Width="44" Height="44" IsActive="False" Foreground="White" IsHitTestVisible="False" />
+
+                    <Border
+                        x:Name="CaptionBox"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Bottom"
+                        Margin="24,0,24,72"
+                        Padding="10,4"
+                        CornerRadius="4"
+                        Background="#B0000000"
+                        IsHitTestVisible="False"
+                        Visibility="Collapsed">
+                        <TextBlock x:Name="CaptionText" Foreground="White" FontSize="18" TextAlignment="Center" TextWrapping="Wrap" />
+                    </Border>
+
+                    <controls:ErrorState x:Name="PlayerError" Visibility="Collapsed" />
+
+                    <!-- Up next, after the end. -->
+                    <Border
+                        x:Name="AutoplayCard"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Bottom"
+                        Margin="16,16,16,76"
+                        Padding="14"
+                        Width="300"
+                        CornerRadius="8"
+                        Background="#E0202020"
+                        Visibility="Collapsed">
+                        <StackPanel Spacing="10">
+                            <TextBlock x:Name="AutoplayLabel" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock x:Name="AutoplayTitle" Style="{ThemeResource BodyStrongTextBlockStyle}" MaxLines="2" TextTrimming="CharacterEllipsis" TextWrapping="Wrap" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Content="Play now" Style="{ThemeResource AccentButtonStyle}" Click="OnAutoplayNowClick" />
+                                <Button Content="Cancel" Click="OnAutoplayCancelClick" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- The controls. -->
+                    <Grid x:Name="Controls" VerticalAlignment="Bottom" Padding="12,28,12,6">
+                        <Grid.OpacityTransition>
+                            <ScalarTransition Duration="0:0:0.18" />
+                        </Grid.OpacityTransition>
+                        <Grid.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                <GradientStop Color="#00000000" Offset="0" />
+                                <GradientStop Color="#E0000000" Offset="1" />
+                            </LinearGradientBrush>
+                        </Grid.Background>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <Slider
+                            x:Name="Scrubber"
+                            Minimum="0"
+                            Maximum="1"
+                            IsThumbToolTipEnabled="False"
+                            AutomationProperties.Name="Playback position" />
+
+                        <Grid Grid.Row="1" ColumnSpacing="4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <Button x:Name="PlayButton" Style="{StaticResource PlayerButton}" Click="OnPlayClick" ToolTipService.ToolTip="Play (K)" AutomationProperties.Name="Play">
+                                    <FontIcon x:Name="PlayIcon" Glyph="&#xF5B0;" FontSize="18" />
+                                </Button>
+                                <Button Style="{StaticResource PlayerButton}" Click="OnBackTenClick" ToolTipService.ToolTip="Back 10 seconds (J)" AutomationProperties.Name="Back 10 seconds">
+                                    <controls:SkipIcon Direction="Back" Seconds="10" Width="18" Height="18" />
+                                </Button>
+                                <Button Style="{StaticResource PlayerButton}" Click="OnAheadTenClick" ToolTipService.ToolTip="Ahead 10 seconds (L)" AutomationProperties.Name="Ahead 10 seconds">
+                                    <controls:SkipIcon Direction="Forward" Seconds="10" Width="18" Height="18" />
+                                </Button>
+                                <Button x:Name="NextButton" Style="{StaticResource PlayerButton}" Click="OnNextClick" ToolTipService.ToolTip="Next" AutomationProperties.Name="Next">
+                                    <FontIcon Glyph="&#xE893;" FontSize="16" />
+                                </Button>
+                                <Button x:Name="MuteButton" Style="{StaticResource PlayerButton}" Click="OnMuteClick" ToolTipService.ToolTip="Mute (M)" AutomationProperties.Name="Mute">
+                                    <FontIcon x:Name="MuteIcon" Glyph="&#xE767;" FontSize="16" />
+                                </Button>
+                                <Slider
+                                    x:Name="VolumeSlider"
+                                    Width="90"
+                                    Margin="4,0,8,0"
+                                    VerticalAlignment="Center"
+                                    Minimum="0"
+                                    Maximum="100"
+                                    ValueChanged="OnVolumeChanged"
+                                    AutomationProperties.Name="Volume" />
+                                <TextBlock x:Name="TimeText" VerticalAlignment="Center" Margin="4,0,0,0" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="White" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2">
+                                <Button x:Name="CaptionsButton" Style="{StaticResource PlayerButton}" Click="OnCaptionsClick" ToolTipService.ToolTip="Captions (C)" AutomationProperties.Name="Captions">
+                                    <FontIcon x:Name="CaptionsIcon" Glyph="&#xED1E;" FontSize="16" />
+                                </Button>
+                                <Button Style="{StaticResource PlayerButton}" ToolTipService.ToolTip="Settings" AutomationProperties.Name="Quality and speed">
+                                    <FontIcon Glyph="&#xE713;" FontSize="16" />
+                                    <Button.Flyout>
+                                        <MenuFlyout x:Name="SettingsMenu" Opening="OnSettingsMenuOpening" Placement="TopEdgeAlignedRight" />
+                                    </Button.Flyout>
+                                </Button>
+                                <Button x:Name="TheaterButton" Style="{StaticResource PlayerButton}" Click="OnTheaterClick" ToolTipService.ToolTip="Theater mode (T)" AutomationProperties.Name="Theater mode">
+                                    <FontIcon x:Name="TheaterIcon" Glyph="&#xE9A6;" FontSize="16" />
+                                </Button>
+                                <Button x:Name="FullScreenButton" Style="{StaticResource PlayerButton}" Click="OnFullScreenClick" ToolTipService.ToolTip="Full screen (F)" AutomationProperties.Name="Full screen">
+                                    <FontIcon x:Name="FullScreenIcon" Glyph="&#xE740;" FontSize="16" />
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
+                </Grid>
+
+                <!-- Details under the player. -->
+                <StackPanel x:Name="Details" Grid.Row="1" Spacing="12">
+                    <TextBlock x:Name="TitleText" Style="{ThemeResource SubtitleTextBlockStyle}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="ChannelButton" Padding="0" Background="Transparent" BorderThickness="0" Click="OnChannelClick" AutomationProperties.Name="Open channel">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <Border Width="40" Height="40" CornerRadius="20" Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                                    <Grid>
+                                        <FontIcon Glyph="&#xE77B;" FontSize="16" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                        <Image x:Name="ChannelAvatar" helpers:Art.Pixels="40" Stretch="UniformToFill" />
+                                    </Grid>
+                                </Border>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock x:Name="ChannelText" Style="{ThemeResource BodyStrongTextBlockStyle}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                    <TextBlock x:Name="SubscribersText" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Button>
+                        <DropDownButton Grid.Column="1" VerticalAlignment="Center" AutomationProperties.Name="Share">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE72D;" FontSize="14" />
+                                <TextBlock Text="Share" />
+                            </StackPanel>
+                            <DropDownButton.Flyout>
+                                <MenuFlyout>
+                                    <MenuFlyoutItem Text="Copy link" Click="OnCopyLinkClick">
+                                        <MenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xE71B;" />
+                                        </MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                    <MenuFlyoutItem Text="Open on YouTube" Click="OnOpenOnYouTubeClick">
+                                        <MenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xE8A7;" />
+                                        </MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                </MenuFlyout>
+                            </DropDownButton.Flyout>
+                        </DropDownButton>
+                    </Grid>
+
+                    <Expander x:Name="DescriptionExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+                        <Expander.Header>
+                            <TextBlock x:Name="MetaText" Style="{ThemeResource BodyStrongTextBlockStyle}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                        </Expander.Header>
+                        <TextBlock x:Name="DescriptionText" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                    </Expander>
+
+                    <Expander x:Name="CommentsExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Expanding="OnCommentsExpanding">
+                        <Expander.Header>
+                            <TextBlock x:Name="CommentsHeader" Text="Comments" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                        </Expander.Header>
+                        <StackPanel Spacing="14">
+                            <StackPanel x:Name="CommentsList" Spacing="14" />
+                            <Button x:Name="MoreCommentsButton" Content="Show more" Visibility="Collapsed" Click="OnMoreCommentsClick" />
+                        </StackPanel>
+                    </Expander>
+                </StackPanel>
+
+                <!-- Up Next: beside the player, or under the details when there's no room. -->
+                <StackPanel x:Name="UpNext" Grid.Column="1" Grid.RowSpan="2" Spacing="4">
+                    <TextBlock Text="Up Next" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,0,0,4" />
+                    <ContentControl x:Name="UpNextLoading" HorizontalContentAlignment="Stretch" IsTabStop="False" />
+                    <ItemsControl x:Name="UpNextList" />
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+    </Grid>
+</Page>

@@ -83,6 +83,10 @@ public sealed partial class SettingsPage : Page
         _loaded = false;
 
         AutoplaySwitch.IsOn = settings.Autoplay;
+        VideosSwitch.IsOn = settings.ShowsVideos;
+        VideoAutoplaySwitch.IsOn = settings.AutoplaysVideos;
+        VideoQualityBox.ItemsSource = VideoQualityChoices.Select(q => q == 0 ? "Auto" : $"{q}p").ToArray();
+        VideoQualityBox.SelectedIndex = Math.Max(0, Array.IndexOf(VideoQualityChoices, settings.VideoQuality));
         NormalizeSwitch.IsOn = settings.NormalizesVolume;
         LosslessDownloadsSwitch.IsOn = settings.UsesLosslessServer;
         RefreshLosslessServer();
@@ -547,6 +551,28 @@ public sealed partial class SettingsPage : Page
 
     private static string Size(long bytes) => Format.Bytes(bytes);
 
+    // MARK: videos
+
+    private static readonly int[] VideoQualityChoices = [0, 1080, 720, 480, 360, 240, 144];
+
+    private void OnVideosToggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        App.Settings.Update(s => s.ShowsVideos = VideosSwitch.IsOn);
+    }
+
+    private void OnVideoAutoplayToggled(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        App.Settings.Update(s => s.AutoplaysVideos = VideoAutoplaySwitch.IsOn);
+    }
+
+    private void OnVideoQualityChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_loaded || VideoQualityBox.SelectedIndex < 0) return;
+        App.Settings.Update(s => s.VideoQuality = VideoQualityChoices[VideoQualityBox.SelectedIndex]);
+    }
+
     // MARK: playback
 
     private void OnAutoplayToggled(object sender, RoutedEventArgs e)
@@ -920,6 +946,8 @@ public sealed partial class SettingsPage : Page
                     : "Signed in. Your likes, saved albums, playlists and artists stay in step with YouTube Music.";
         ApplySettingsSearch();
     }
+
+    private void OnProfilesClick(object sender, RoutedEventArgs e) => _ = ProfilesDialog.ShowAsync();
 
     private async void OnYouTubeClick(object sender, RoutedEventArgs e)
     {

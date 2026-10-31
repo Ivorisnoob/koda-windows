@@ -31,7 +31,7 @@ public sealed partial class HomePage : Page
         Mix? Mix, Song[] Picks, bool PicksPersonal, PlaylistSummary[] Charts, Song[] Trending,
         Shelf[] YouTube, Dictionary<string, Artwork> ArtistPhotos, DateTimeOffset LoadedAt);
 
-    private static string SnapshotPath => Path.Combine(App.DataDirectory, "home-snapshot.json");
+    private static string SnapshotPath => Path.Combine(Koda.Services.Profiles.ActiveFolder, "home-snapshot.json");
     private static readonly JsonSerializerOptions SnapshotJson = new() { PropertyNameCaseInsensitive = true };
 
     private Saved? _state;
@@ -455,7 +455,6 @@ public sealed partial class HomePage : Page
     {
         try
         {
-            Directory.CreateDirectory(App.DataDirectory);
             File.WriteAllText(SnapshotPath, JsonSerializer.Serialize(state, SnapshotJson));
         }
         catch (Exception)

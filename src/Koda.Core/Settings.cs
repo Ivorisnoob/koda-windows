@@ -138,6 +138,29 @@ public sealed class Settings
     /// <summary>When the queue ends, the radio of the last song keeps it going.</summary>
     public bool Autoplay { get; set; } = true;
 
+    /// <summary>The tallest picture a video starts at, in lines (720, 1080…); 0 lets it follow
+    /// the connection. 1080p unless chosen otherwise. A video offering less plays its best below it.</summary>
+    public int VideoQuality
+    {
+        get => _videoQuality;
+        set => _videoQuality = VideoQualities.Contains(value) ? value : 1080;
+    }
+
+    public static readonly int[] VideoQualities = [0, 2160, 1440, 1080, 720, 480, 360, 240, 144];
+
+    private int _videoQuality = 1080;
+
+    /// <summary>Videos in the sidebar. Off by default: Koda is a music app until the listener
+    /// turns videos on in Settings.</summary>
+    public bool ShowsVideos { get; set; }
+
+    /// <summary>At a video's end, the next in Up Next starts after a short countdown.</summary>
+    public bool AutoplaysVideos { get; set; } = true;
+
+    /// <summary>The watch page's theater layout: the video across the whole page on black, the
+    /// details and Up Next under it; off, Up Next sits beside the video.</summary>
+    public bool VideoTheater { get; set; }
+
     /// <summary>Buttons beside previous and next jump back or ahead within the song.</summary>
     public bool ShowsSkipButtons { get; set; } = true;
 

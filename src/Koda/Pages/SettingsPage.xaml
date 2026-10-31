@@ -85,6 +85,48 @@
                 <HyperlinkButton Content="Clear search" Click="OnClearSettingsSearchClick" Padding="0" />
             </StackPanel>
 
+            <!-- Videos -->
+            <TextBlock Text="Videos" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,4,0,8" Tag="section" />
+            <Border Style="{StaticResource SettingsCard}" Margin="0,0,0,16">
+                <StackPanel>
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Show videos" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock Text="Keep YouTube videos in the sidebar." Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="VideosSwitch" Grid.Column="1" Style="{StaticResource SettingsToggle}" AutomationProperties.Name="Show videos" Toggled="OnVideosToggled" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Default quality" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock Text="The tallest picture a video starts at. Up to 1080p for now." Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ComboBox x:Name="VideoQualityBox" Grid.Column="1" MinWidth="120" VerticalAlignment="Center" AutomationProperties.Name="Default video quality" SelectionChanged="OnVideoQualityChanged" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsDivider}" />
+                    <Grid Style="{StaticResource SettingsRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="Autoplay next video" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock Text="Start the next one in Up Next after a short countdown." Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="VideoAutoplaySwitch" Grid.Column="1" Style="{StaticResource SettingsToggle}" AutomationProperties.Name="Autoplay next video" Toggled="OnVideoAutoplayToggled" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
             <!-- Playback -->
             <TextBlock Text="Playback" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,4,0,8" Tag="section" />
             <Border Style="{StaticResource SettingsCard}">
@@ -843,6 +885,26 @@
                             Toggled="OnYouTubePlaysToggled" />
                     </Grid>
                 </StackPanel>
+            </Border>
+
+            <!-- Profiles -->
+            <TextBlock Text="Profiles" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,20,0,8" Tag="section" />
+            <Border Style="{StaticResource SettingsCard}">
+                <Grid Style="{StaticResource SettingsRow}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center" Spacing="2">
+                        <TextBlock Text="Profiles" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                        <TextBlock
+                            Text="Keep separate likes, playlists and history, with or without a Google account."
+                            Style="{ThemeResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="Manage…" VerticalAlignment="Center" Click="OnProfilesClick" AutomationProperties.Name="Manage profiles" />
+                </Grid>
             </Border>
 
             <!-- Last.fm -->

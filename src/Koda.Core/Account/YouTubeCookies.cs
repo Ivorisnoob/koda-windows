@@ -25,8 +25,16 @@ public sealed class YouTubeCookies : IEquatable<YouTubeCookies>
 
     private readonly List<Cookie> _cookies;
 
-    /// <summary>Cookies by name; a repeated name keeps its first value.</summary>
+    /// <summary>What a saved session is read back through. System.Text.Json refuses a constructor
+    /// whose parameter type differs from the property's, so this one has to match
+    /// <see cref="Cookies"/> exactly: with IEnumerable here, every saved session failed to load.</summary>
     [JsonConstructor]
+    public YouTubeCookies(IReadOnlyList<Cookie>? cookies)
+        : this((IEnumerable<Cookie>?)cookies)
+    {
+    }
+
+    /// <summary>Cookies by name; a repeated name keeps its first value.</summary>
     public YouTubeCookies(IEnumerable<Cookie>? cookies)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);

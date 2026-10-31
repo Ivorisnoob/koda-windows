@@ -159,6 +159,76 @@
                 </StackPanel>
             </DataTemplate>
 
+            <!-- A video on a list: the frame is the card, title and byline under it. The size comes
+                 from VideoGrid, so a row of cards always fills the page. -->
+            <Style x:Key="VideoCardItemStyle" TargetType="GridViewItem" BasedOn="{StaticResource DefaultGridViewItemStyle}">
+                <Setter Property="Padding" Value="6" />
+                <Setter Property="Margin" Value="0" />
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="VerticalContentAlignment" Value="Top" />
+            </Style>
+
+            <DataTemplate x:Key="VideoCardTemplate">
+                <Grid RowSpacing="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Border CornerRadius="8" Background="{ThemeResource SubtleFillColorSecondaryBrush}" helpers:VideoGrid.Frame="True">
+                        <Grid>
+                            <FontIcon Glyph="&#xE714;" FontSize="24" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                            <Image helpers:VideoArt.Quick="{Binding Video}" Stretch="UniformToFill" />
+                            <Image helpers:VideoArt.Video="{Binding Video}" Stretch="UniformToFill" />
+                            <Border Margin="6" Padding="5,1" HorizontalAlignment="Right" VerticalAlignment="Bottom" CornerRadius="4" Background="#CC000000" Visibility="{Binding HasDuration, Converter={StaticResource BoolToVisibility}}">
+                                <TextBlock Text="{Binding Duration}" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="White" />
+                            </Border>
+                            <ProgressBar VerticalAlignment="Bottom" Minimum="0" Maximum="1" Value="{Binding Progress}" Visibility="{Binding HasProgress, Converter={StaticResource BoolToVisibility}}" />
+                        </Grid>
+                    </Border>
+                    <StackPanel Grid.Row="1" Spacing="2">
+                        <TextBlock Text="{Binding Title}" Style="{ThemeResource BodyStrongTextBlockStyle}" MaxLines="2" TextTrimming="CharacterEllipsis" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding Byline}" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                    </StackPanel>
+                </Grid>
+            </DataTemplate>
+
+            <!-- Up Next: a small frame beside its title. -->
+            <DataTemplate x:Key="VideoRowTemplate">
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="144" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Width="144" Height="81" CornerRadius="6" Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                        <Grid>
+                            <Image helpers:VideoArt.Quick="{Binding Video}" Stretch="UniformToFill" />
+                            <Image helpers:VideoArt.Video="{Binding Video}" Stretch="UniformToFill" />
+                            <Border Margin="4" Padding="4,0" HorizontalAlignment="Right" VerticalAlignment="Bottom" CornerRadius="3" Background="#CC000000" Visibility="{Binding HasDuration, Converter={StaticResource BoolToVisibility}}">
+                                <TextBlock Text="{Binding Duration}" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="White" />
+                            </Border>
+                        </Grid>
+                    </Border>
+                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Top">
+                        <TextBlock Text="{Binding Title}" Style="{ThemeResource BodyStrongTextBlockStyle}" MaxLines="2" TextTrimming="CharacterEllipsis" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding Byline}" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" MaxLines="2" TextTrimming="CharacterEllipsis" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Grid>
+            </DataTemplate>
+
+            <DataTemplate x:Key="ChannelCardTemplate">
+                <StackPanel Spacing="2" Padding="6">
+                    <Border Width="120" Height="120" CornerRadius="60" HorizontalAlignment="Center" Background="{ThemeResource SubtleFillColorSecondaryBrush}" Margin="0,0,0,6">
+                        <Grid>
+                            <FontIcon Glyph="&#xE77B;" FontSize="24" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                            <Image helpers:Art.Pixels="120" helpers:Art.Source="{Binding Avatar}" Stretch="UniformToFill" />
+                        </Grid>
+                    </Border>
+                    <TextBlock Text="{Binding Name}" HorizontalAlignment="Center" TextAlignment="Center" Style="{ThemeResource BodyStrongTextBlockStyle}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                    <TextBlock Text="{Binding Detail}" HorizontalAlignment="Center" TextAlignment="Center" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                </StackPanel>
+            </DataTemplate>
+
             <helpers:CardTemplateSelector
                 x:Key="CardSelector"
                 Square="{StaticResource SquareCardTemplate}"

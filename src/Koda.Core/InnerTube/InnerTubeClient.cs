@@ -151,6 +151,106 @@ public sealed class InnerTubeClient : IDisposable
     }
 
     /// <summary>
+    /// One www.youtube.com youtubei call, as the WEB client: video feeds, search, watch pages,
+    /// channels and writes. Signed in, it carries the account and is signed for www.youtube.com,
+    /// so Home is the account's own.
+    /// </summary>
+    public async Task<Json> WebAsync(string endpoint, JsonObject payload, CancellationToken cancellation = default,
+        Signing signing = Signing.IfSignedIn)
+    {
+        var ticket = _accounts?.Ticket();
+        if (signing == Signing.Required && ticket?.Cookies.Sapisid is null) throw MusicException.SignedOut();
+
+        var visitor = await _identity.CachedAsync();
+        visitor ??= await _identity.CurrentAsync(cancellation);
+
+        var client = new JsonObject
+        {
+            ["clientName"] = "WEB",
+            ["clientVersion"] = _clients.WebVersion,
+            ["hl"] = "en",
+            ["gl"] = "US",
+        };
+        if (visitor is not null) client["visitorData"] = visitor;
+        payload["context"] = new JsonObject { ["client"] = client };
+
+        using var request = new HttpRequestMessage(HttpMethod.Post,
+            $"https://www.youtube.com/youtubei/v1/{endpoint}?prettyPrint=false");
+        request.Content = new StringContent(payload.ToJsonString(), System.Text.Encoding.UTF8, "application/json");
+        request.Headers.TryAddWithoutValidation("User-Agent", _clients.BrowserUserAgent);
+        request.Headers.TryAddWithoutValidation("Origin", WebOrigin);
+        request.Headers.TryAddWithoutValidation("X-YouTube-Client-Name", "1");
+        request.Headers.TryAddWithoutValidation("X-YouTube-Client-Version", _clients.WebVersion);
+        if (visitor is not null) request.Headers.TryAddWithoutValidation("X-Goog-Visitor-Id", visitor);
+        if (ticket is not null)
+        {
+            foreach (var (field, value) in SapisidHash.Headers(ticket.Cookies, WebOrigin))
+            {
+                request.Headers.TryAddWithoutValidation(field, value);
+            }
+        }
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellation);
+        }
+        catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
+        {
+            throw MusicException.Network("timeout");
+        }
+        catch (Exception e) when (e is HttpRequestException or System.IO.IOException)
+        {
+            throw MusicException.Network(e.Message);
+        }
+
+        if (ticket is not null) _accounts?.Received(SetCookies(response), ticket);
+
+        var status = (int)response.StatusCode;
+        if (status != 200)
+        {
+            var retryAfter = response.Headers.RetryAfter is { } header
+                ? header.Delta ?? (header.Date is { } date ? date - DateTimeOffset.UtcNow : null)
+                : null;
+            response.Dispose();
+            if (_gate.Hit(status, retryAfter)) throw MusicException.RateLimited();
+            if (status == 401 && (ticket is not null || signing == Signing.Required)) throw MusicException.SignedOut();
+            throw MusicException.BadResponse(status);
+        }
+
+        string body;
+        try
+        {
+            body = await response.Content.ReadAsStringAsync(cancellation);
+        }
+        finally
+        {
+            response.Dispose();
+        }
+
+        Json root;
+        try
+        {
+            root = Json.Parse(body);
+        }
+        catch (Exception)
+        {
+            throw MusicException.Network("unreadable body");
+        }
+        if (root["error"].Exists) throw MusicException.Network("body carries an error");
+
+        if (ticket is not null && AccountPages.SignedIn(root) is { } signedIn)
+        {
+            _accounts?.Note(signedIn, ticket);
+            if (!signedIn && signing == Signing.Required) throw MusicException.SignedOut();
+        }
+        return root;
+    }
+
+    /// <summary>www.youtube.com, the origin a WEB request is signed for.</summary>
+    public const string WebOrigin = "https://www.youtube.com";
+
+    /// <summary>
     /// A signed GET to one of YouTube's tracking URLs (history pings), as the active account.
     /// Only <see cref="HistoryPing.TrackingUrl"/> builds these, so the cookies go to YouTube's
     /// hosts alone.

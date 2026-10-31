@@ -118,6 +118,43 @@
                             </muxc:NavigationViewItem.Icon>
                         </muxc:NavigationViewItem>
 
+                        <muxc:NavigationViewItemHeader x:Name="VideosHeader" Content="Videos" />
+                        <muxc:NavigationViewItem x:Name="VideoHomeItem" Content="Videos" Tag="video-home" ToolTipService.ToolTip="Videos for you">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE714;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+                        <muxc:NavigationViewItem x:Name="VideoSubscriptionsItem" Content="Subscriptions" Tag="video-subscriptions" ToolTipService.ToolTip="The latest from your channels">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE8F2;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+                        <muxc:NavigationViewItem x:Name="VideoExploreItem" Content="Explore" Tag="video-explore" ToolTipService.ToolTip="Music, news, sports and learning">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE7C3;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+                        <muxc:NavigationViewItem x:Name="VideoChannelsItem" Content="Channels" Tag="video-channels" ToolTipService.ToolTip="Channels you subscribe to">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE716;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+                        <muxc:NavigationViewItem x:Name="VideoLaterItem" Content="Watch Later" Tag="video-later" ToolTipService.ToolTip="Watch Later">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE728;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+                        <muxc:NavigationViewItem x:Name="VideoLikedItem" Content="Liked Videos" Tag="video-liked" ToolTipService.ToolTip="Liked Videos">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE8E1;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+                        <muxc:NavigationViewItem x:Name="VideoHistoryItem" Content="Watch History" Tag="video-history" ToolTipService.ToolTip="Videos you've watched">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE81C;" />
+                            </muxc:NavigationViewItem.Icon>
+                        </muxc:NavigationViewItem>
+
                         <muxc:NavigationViewItemHeader Content="Library" />
                         <muxc:NavigationViewItem Content="Recently Played" Tag="recent" ToolTipService.ToolTip="Recently Played">
                             <muxc:NavigationViewItem.Icon>
@@ -182,6 +219,26 @@
                         <!-- What plays next and today's listening, as ordinary two-line rows: they line up
                              with the rest of the pane, keep its hover and focus, and shrink to their icon
                              when the pane is compact. -->
+                        <!-- Who's listening. Here only once there are two profiles to choose between. -->
+                        <muxc:NavigationViewItem
+                            x:Name="ProfileItem"
+                            Tag="profile"
+                            SelectsOnInvoked="False"
+                            Visibility="Collapsed">
+                            <muxc:NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE77B;" />
+                            </muxc:NavigationViewItem.Icon>
+                            <StackPanel VerticalAlignment="Center" Margin="0,5">
+                                <TextBlock x:Name="ProfileName" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                <TextBlock
+                                    x:Name="ProfileDetail"
+                                    Style="{ThemeResource CaptionTextBlockStyle}"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    TextTrimming="CharacterEllipsis"
+                                    TextWrapping="NoWrap" />
+                            </StackPanel>
+                        </muxc:NavigationViewItem>
+
                         <muxc:NavigationViewItem
                             x:Name="UpNextItem"
                             Tag="up-next"
@@ -482,6 +539,65 @@
                             ValueChanged="OnVolumeChanged"
                             AutomationProperties.Name="Volume" />
                     </StackPanel>
+                </Grid>
+
+                <!-- The video going on while the rest of Koda is browsed: its live picture, what it
+                     is, play and the scrubber. Tapping it goes back to the watch page. -->
+                <Grid
+                    x:Name="VideoBar"
+                    Grid.Row="1"
+                    Height="84"
+                    Padding="12,0"
+                    ColumnSpacing="16"
+                    Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" MinWidth="200" />
+                        <ColumnDefinition Width="2*" MaxWidth="620" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.ColumnSpan="3" Height="1" Margin="-12,0" VerticalAlignment="Top" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                    <Grid ColumnSpacing="12" VerticalAlignment="Center" Background="Transparent" Tapped="OnVideoBarTapped" ToolTipService.ToolTip="Back to the video">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="100" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Width="100" Height="56" CornerRadius="6" Background="Black">
+                            <MediaPlayerElement x:Name="VideoBarPicture" AreTransportControlsEnabled="False" Stretch="UniformToFill" IsHitTestVisible="False" />
+                        </Border>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                            <TextBlock x:Name="VideoBarTitle" Style="{ThemeResource BodyStrongTextBlockStyle}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                            <TextBlock x:Name="VideoBarChannel" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                        </StackPanel>
+                    </Grid>
+
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
+                            <Button Width="36" Height="36" Padding="0" Background="Transparent" BorderThickness="0" Click="OnVideoBackClick" ToolTipService.ToolTip="Back 10 seconds" AutomationProperties.Name="Back 10 seconds">
+                                <controls:SkipIcon Direction="Back" Seconds="10" Width="18" Height="18" />
+                            </Button>
+                            <Button x:Name="VideoPlayButton" Width="40" Height="40" Padding="0" CornerRadius="20" Style="{ThemeResource AccentButtonStyle}" Click="OnVideoPlayClick" ToolTipService.ToolTip="Play (Space)" AutomationProperties.Name="Play">
+                                <FontIcon x:Name="VideoPlayIcon" Glyph="&#xF5B0;" FontSize="16" />
+                            </Button>
+                            <Button Width="36" Height="36" Padding="0" Background="Transparent" BorderThickness="0" Click="OnVideoAheadClick" ToolTipService.ToolTip="Ahead 10 seconds" AutomationProperties.Name="Ahead 10 seconds">
+                                <controls:SkipIcon Direction="Forward" Seconds="10" Width="18" Height="18" />
+                            </Button>
+                        </StackPanel>
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="40" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="40" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="VideoElapsed" VerticalAlignment="Center" TextAlignment="Right" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <Slider x:Name="VideoScrubber" Grid.Column="1" Minimum="0" Maximum="1" IsThumbToolTipEnabled="False" VerticalAlignment="Center" AutomationProperties.Name="Video position" />
+                            <TextBlock x:Name="VideoTotal" Grid.Column="2" VerticalAlignment="Center" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </Grid>
+                    </StackPanel>
+
+                    <Button Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center" Width="36" Height="36" Padding="0" Background="Transparent" BorderThickness="0" Click="OnVideoCloseClick" ToolTipService.ToolTip="Close video" AutomationProperties.Name="Close video">
+                        <FontIcon Glyph="&#xE711;" FontSize="14" />
+                    </Button>
                 </Grid>
             </Grid>
 

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Koda.Pages.VideoExplorePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Koda.Controls">
+    <Grid Padding="26,16,0,0" RowSpacing="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Spacing="2">
+            <TextBlock Text="Videos" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <TextBlock Text="Explore" Style="{ThemeResource TitleTextBlockStyle}" />
+        </StackPanel>
+
+        <SelectorBar x:Name="Topics" Grid.Row="1" Margin="-12,0,0,0" SelectionChanged="OnTopicChanged" AutomationProperties.Name="Topics">
+            <SelectorBarItem Text="Music" Tag="UC-9-kyTW8ZkZNDHQJ6FgpwQ" IsSelected="True" />
+            <SelectorBarItem Text="News" Tag="UCYfdidRxbB8Qhf0Nx7ioOYw" />
+            <SelectorBarItem Text="Sports" Tag="UCEgdi0XIXXZ-qJOFPf4JSKw" />
+            <SelectorBarItem Text="Learning" Tag="UCtFRv9O2AHqOZjjynzrv-xg" />
+        </SelectorBar>
+
+        <ScrollViewer x:Name="Scroller" Grid.Row="2" Padding="0,8,0,28">
+            <StackPanel x:Name="Shelves" Spacing="24" />
+        </ScrollViewer>
+        <ContentControl x:Name="LoadingView" Grid.Row="2" Margin="0,8,26,0" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Top" IsTabStop="False" />
+        <controls:ErrorState x:Name="Status" Grid.Row="2" Visibility="Collapsed" />
+    </Grid>
+</Page>

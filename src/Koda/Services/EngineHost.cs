@@ -25,6 +25,6 @@ public static class EngineHost
             Music,
             App.Library,
             App.Settings,
-            new CredentialStore("Koda/YouTube"),
-            App.DataDirectory);
+            Profiles.ActiveCredentials,
+            Profiles.ActiveFolder);
 }

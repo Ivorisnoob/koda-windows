@@ -9,8 +9,7 @@ public sealed class YouTubeSignInException(string message) : Exception(message);
 /// The library's YouTube Music account: which session signs requests, signing in and out,
 /// YouTube's verdicts on the session, and keeping the library in step with the account.
 ///
-/// The Windows app has no profiles, so there is one account for the whole library. Session
-/// changes, writes and history pings go through <c>_work</c> one at a time, and every write checks
+/// There is one account at a time, the active profile's. Session changes, writes and history pings go through <c>_work</c> one at a time, and every write checks
 /// the session is still live before it goes out. Reading the account's library runs on its own and
 /// is dropped if the account signs out while it ran.
 ///
@@ -28,10 +27,10 @@ public sealed class YouTubeAccount : IDisposable
     private readonly YouTubeMusic _music;
     private readonly Library _library;
     private readonly Settings _settings;
-    private readonly ISecretStore _secrets;
-    private readonly string _directory;
-    private readonly string _infoFile;
-    private readonly string _mirrorFile;
+    private ISecretStore _secrets;
+    private string _directory;
+    private string _infoFile;
+    private string _mirrorFile;
 
     /// <summary>One piece of account work at a time: sign-in, sign-out, sync, a write, a ping.</summary>
     private readonly SemaphoreSlim _work = new(1, 1);
@@ -172,6 +171,57 @@ public sealed class YouTubeAccount : IDisposable
         _music.ClearPageCache();
         _ = _music.RenewVisitorIdentityAsync();
         Notify();
+    }
+
+    /// <summary>
+    /// Another profile takes over. Under the account's work lock, so no sync or write straddles
+    /// the change: the leaving account's unsent changes are filed in its own mirror, requests go
+    /// signed out while the library is swapped, then the new profile's session comes in. Nothing
+    /// can go out as the wrong account.
+    /// </summary>
+    public async Task SwitchAsync(string directory, ISecretStore secrets, Action openLibrary)
+    {
+        await _work.WaitAsync();
+        try
+        {
+            lock (_mirrorLock)
+            {
+                if (_music.Accounts.Active is not null)
+                {
+                    var now = Snapshot();
+                    var changes = Differences(_lastSeen, now);
+                    foreach (var change in changes) _mirror.Queue(change);
+                    if (changes.Count > 0) SaveMirror();
+                }
+            }
+
+            _music.Accounts.Forget(AccountId);
+            openLibrary();
+
+            _secrets = secrets;
+            _directory = directory;
+            _infoFile = Path.Combine(directory, "account.json");
+            _mirrorFile = Path.Combine(directory, "account-mirror.json");
+            _info = null;
+            _isExpired = false;
+            lock (_syncGate) _lastSync = null;
+            lock (_mirrorLock)
+            {
+                _mirror = LoadMirror();
+                _lastSeen = Snapshot();
+            }
+
+            RestoreSession();
+            _music.ClearPageCache();
+        }
+        finally
+        {
+            _work.Release();
+        }
+
+        Notify();
+        _ = _music.RenewVisitorIdentityAsync();
+        if (IsSignedIn) _ = SyncAsync(force: true);
     }
 
     // MARK: Library sync

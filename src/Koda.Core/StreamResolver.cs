@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json.Nodes;
 using Koda.Core.InnerTube;
+using Koda.Core.Video;
 
 namespace Koda.Core;
 
@@ -23,6 +24,7 @@ public sealed class StreamResolver : IDisposable
     private readonly ClientProfiles _clients;
     private readonly Dictionary<string, ResolvedStream> _cache = [];
     private readonly Dictionary<string, Task<ResolvedStream>> _inFlight = [];
+    private readonly Dictionary<string, VideoStream> _videoCache = [];
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly bool _ownsHttp;
     private bool _disposed;
@@ -146,6 +148,84 @@ public sealed class StreamResolver : IDisposable
         }
     }
 
+    /// <summary>
+    /// A video's stream from the same <c>/player</c> call, under the same bot check and so
+    /// the same one replacement of a refused token. Cached until shortly before it expires.
+    /// </summary>
+    public async Task<VideoStream> ResolveVideoAsync(string videoId, CancellationToken cancellation = default)
+    {
+        await _gate.WaitAsync(cancellation);
+        try
+        {
+            if (_videoCache.TryGetValue(videoId, out var cached) && cached.IsFresh()) return cached;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+
+        var token = await _identity.CurrentAsync(cancellation)
+            ?? throw MusicException.Network("no visitor identity");
+        var stream = await VideoAttemptAsync(videoId, token, cancellation);
+        if (stream is null)
+        {
+            var fresh = await _identity.ReplaceAsync(token, cancellation);
+            if (fresh is null || fresh == token) throw MusicException.BotCheck();
+            stream = await VideoAttemptAsync(videoId, fresh, cancellation) ?? throw MusicException.BotCheck();
+        }
+
+        await _gate.WaitAsync(cancellation);
+        try
+        {
+            _videoCache[videoId] = stream;
+            if (_videoCache.Count > 100)
+            {
+                foreach (var (key, old) in _videoCache.Where(kvp => !kvp.Value.IsFresh()).ToList())
+                    _videoCache.Remove(key);
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+        return stream;
+    }
+
+    /// <summary>Null for the bot check's signatures: LOGIN_REQUIRED, OK with nothing to stream, and a last byte refused.</summary>
+    private async Task<VideoStream?> VideoAttemptAsync(string videoId, string token, CancellationToken cancellation)
+    {
+        var root = await PlayerAsync(videoId, token, cancellation);
+        var status = root["playabilityStatus"]["status"].String ?? "";
+        if (status == "LOGIN_REQUIRED") return null;
+        if (!string.IsNullOrEmpty(status) && status != "OK")
+            throw MusicException.Unplayable(root["playabilityStatus"]["reason"].NonEmpty);
+        var data = root["streamingData"];
+        if (!data.Exists) return null;
+
+        var expiresAt = data["expiresInSeconds"].Double is { } seconds
+            ? DateTimeOffset.UtcNow.AddSeconds(seconds)
+            : (DateTimeOffset?)null;
+        var userAgent = _clients.VisionOs.UserAgent;
+
+        // Live has no indexed formats to describe, only the HLS master Windows refuses.
+        if (root["videoDetails"]["isLive"].Bool == true)
+            throw MusicException.Unplayable("Live videos are not supported yet");
+
+        if (DashManifest.Build(root) is not { } dash) throw MusicException.Unplayable("No playable stream");
+
+        // A new token is vetted on the audio, as a song's is: refused, it would play a few
+        // seconds of picture and then stall.
+        if (!_identity.IsVetted(token) && PickAudio(root, videoId, userAgent) is { } audio)
+        {
+            using var probeBudget = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+            probeBudget.CancelAfter(TimeSpan.FromSeconds(6));
+            var lastByte = await ServesLastByteAsync(audio, probeBudget.Token);
+            if (lastByte == false) return null;
+            if (lastByte == true) _identity.MarkVetted(token);
+        }
+        return new VideoStream(videoId, dash.Manifest, dash.Qualities, userAgent, expiresAt);
+    }
+
     /// <summary>Forget a stream googlevideo refused mid-play, so the next resolve starts fresh.</summary>
     public async Task InvalidateAsync(string videoId, bool refusedIdentity, CancellationToken cancellation = default)
     {
@@ -153,6 +233,7 @@ public sealed class StreamResolver : IDisposable
         try
         {
             _cache.Remove(videoId);
+            _videoCache.Remove(videoId);
         }
         finally
         {

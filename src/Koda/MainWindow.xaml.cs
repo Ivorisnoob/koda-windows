@@ -74,6 +74,11 @@ public sealed partial class MainWindow : Window
 
     private PlaybackService Playback => PlaybackService.Instance;
 
+    private VideoPlaybackService Video => VideoPlaybackService.Instance;
+
+    private bool _videoScrubbing;
+    private bool _videoFullScreen;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -127,6 +132,16 @@ public sealed partial class MainWindow : Window
         Playback.PlayStateChanged += OnPlayStateChanged;
         Playback.PositionTick += OnPositionTick;
         Playback.StatusRaised += OnStatusRaised;
+        Video.Connect(dispatch);
+        Video.StartTimers();
+        Video.Changed += () => dispatch.TryEnqueue(UpdateVideoBar);
+        Video.Tick += () => dispatch.TryEnqueue(UpdateVideoBarTime);
+        Scrubbing.Attach(VideoScrubber, on => _videoScrubbing = on, Video.Seek, () => Video.HasVideo);
+        App.Account.Changed += () => dispatch.TryEnqueue(UpdateVideoSidebar);
+        App.Settings.Changed += _ => dispatch.TryEnqueue(UpdateVideoSidebar);
+        UpdateVideoSidebar();
+        Koda.Services.Profiles.Roster.Changed += () => dispatch.TryEnqueue(UpdateProfileItem);
+        UpdateProfileItem();
         App.Library.Changed += () => dispatch.TryEnqueue(RefreshSidebar);
         App.AudioStore.Changed += () => dispatch.TryEnqueue(RefreshSidebar);
         App.Library.Changed += () => dispatch.TryEnqueue(UpdateLike);
@@ -294,9 +309,10 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>A sidebar section's own page: what is behind it is dropped, so Back stops here.</summary>
-    public void NavigateRoot(Type page, object? parameter = null, string? tag = null)
+    /// <param name="fresh">Open it again even if it's already showing: a new profile's Home.</param>
+    public void NavigateRoot(Type page, object? parameter = null, string? tag = null, bool fresh = false)
     {
-        if (tag is not null && tag == _currentTag && !ContentFrame.CanGoBack && ContentFrame.CurrentSourcePageType == page)
+        if (!fresh && tag is not null && tag == _currentTag && !ContentFrame.CanGoBack && ContentFrame.CurrentSourcePageType == page)
         {
             return;
         }
@@ -367,6 +383,30 @@ public sealed partial class MainWindow : Window
             case "up-next":
                 ShowQueue();
                 break;
+            case "profile":
+                ShowProfileMenu();
+                break;
+            case "video-home":
+                NavigateRoot(typeof(VideoListPage), new VideoListRequest(VideoListKind.Home), tag);
+                break;
+            case "video-subscriptions":
+                NavigateRoot(typeof(VideoListPage), new VideoListRequest(VideoListKind.Subscriptions), tag);
+                break;
+            case "video-explore":
+                NavigateRoot(typeof(VideoExplorePage), null, tag);
+                break;
+            case "video-channels":
+                NavigateRoot(typeof(VideoListPage), new VideoListRequest(VideoListKind.Channels), tag);
+                break;
+            case "video-later":
+                NavigateRoot(typeof(VideoListPage), new VideoListRequest(VideoListKind.WatchLater), tag);
+                break;
+            case "video-liked":
+                NavigateRoot(typeof(VideoListPage), new VideoListRequest(VideoListKind.Liked), tag);
+                break;
+            case "video-history":
+                NavigateRoot(typeof(VideoListPage), new VideoListRequest(VideoListKind.History), tag);
+                break;
             case "new-playlist":
                 _ = Dialogs.CreatePlaylistAsync([]);
                 break;
@@ -429,8 +469,9 @@ public sealed partial class MainWindow : Window
     private void OnContentNavigated(object sender, Microsoft.UI.Xaml.Navigation.NavigationEventArgs args)
     {
         UpdateBackButton();
-        // Now Playing is the whole player: the bar steps aside while it is open.
-        PlayerBar.Visibility = args.SourcePageType == typeof(NowPlayingPage) ? Visibility.Collapsed : Visibility.Visible;
+        // Now Playing and the watch page are whole players: the bars step aside while they're open.
+        UpdateVideoBar();
+        TitleSearch.PlaceholderText = args.Content is IVideoPage ? "Search YouTube" : "Songs, albums, artists or a link";
         if (args.SourcePageType == typeof(SearchPage))
         {
             SearchResultsItem.Visibility = Visibility.Visible;
@@ -479,6 +520,16 @@ public sealed partial class MainWindow : Window
         nameof(PlaylistPage) => "playlists",
         nameof(ArtistPage) => "artists",
         nameof(SettingsPage) => "settings",
+        nameof(VideoExplorePage) => "video-explore",
+        nameof(VideoListPage) => (parameter as VideoListRequest)?.Kind switch
+        {
+            VideoListKind.Subscriptions => "video-subscriptions",
+            VideoListKind.Channels => "video-channels",
+            VideoListKind.WatchLater => "video-later",
+            VideoListKind.Liked => "video-liked",
+            VideoListKind.History => "video-history",
+            _ => "video-home",
+        },
         _ => null,
     };
 
@@ -723,6 +774,22 @@ public sealed partial class MainWindow : Window
         }
 
         sender.Text = query;
+
+        // While a video page is open the search is YouTube's.
+        if (ContentFrame.Content is IVideoPage)
+        {
+            if (ContentFrame.Content is VideoListPage open && open.IsSearch)
+            {
+                open.Search(query);
+            }
+            else
+            {
+                NavigateTo(typeof(VideoListPage), new VideoListRequest(VideoListKind.Search, query));
+            }
+
+            return;
+        }
+
         SearchFor(query);
     }
 
@@ -731,6 +798,9 @@ public sealed partial class MainWindow : Window
     {
         switch (link)
         {
+            case YouTubeLink.Song song when ContentFrame.Content is IVideoPage:
+                OpenVideo(new Koda.Core.Video.Video(song.VideoId, "YouTube video"));
+                break;
             case YouTubeLink.Song song:
                 _ = Playback.PlayLinkedSongAsync(song.VideoId);
                 break;
@@ -762,6 +832,7 @@ public sealed partial class MainWindow : Window
         }
 
         Add(VirtualKey.F, VirtualKeyModifiers.Control, () => TitleSearch.Focus(FocusState.Keyboard));
+        Add(VirtualKey.P, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, () => _ = Koda.Services.Profiles.SwitchBackAsync());
         Add(VirtualKey.Left, VirtualKeyModifiers.Menu, GoBack);
         Add(VirtualKey.GoBack, VirtualKeyModifiers.None, GoBack);
         Add(VirtualKey.Right, VirtualKeyModifiers.Control, () => _ = Playback.NextAsync());
@@ -784,8 +855,40 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
-            Playback.Toggle();
+            if (Video.HasVideo)
+            {
+                Video.TogglePlay();
+            }
+            else
+            {
+                Playback.Toggle();
+            }
+
             args.Handled = true;
+        }), true);
+
+        // The watch page's keys, unless something that types has focus; arrows stay with a
+        // focused slider, which they move. Space is handled above.
+        Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((_, args) =>
+        {
+            if (ContentFrame.Content is not VideoWatchPage page || args.Key == VirtualKey.Space)
+            {
+                return;
+            }
+
+            var focused = FocusManager.GetFocusedElement(Root.XamlRoot);
+            if (focused is TextBox or AutoSuggestBox
+                || (focused is Slider && args.Key is VirtualKey.Left or VirtualKey.Right or VirtualKey.Up or VirtualKey.Down))
+            {
+                return;
+            }
+
+            var keys = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(CoreVirtualKeyStates.Down)
+                || InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu).HasFlag(CoreVirtualKeyStates.Down);
+            if (!keys && page.HandleKey(args.Key))
+            {
+                args.Handled = true;
+            }
         }), true);
 
         Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnZoomKeyDown), true);
@@ -1149,6 +1252,158 @@ public sealed partial class MainWindow : Window
         VolumeSlider.Visibility = e.NewSize.Width < 760 ? Visibility.Collapsed : Visibility.Visible;
     }
 
+    // MARK: profiles
+
+    /// <summary>Only with a choice to make: one profile, and nothing about profiles shows here.</summary>
+    private void UpdateProfileItem()
+    {
+        var roster = Koda.Services.Profiles.Roster;
+        var active = roster.Active;
+        ProfileItem.Visibility = roster.HasSeveral ? Visibility.Visible : Visibility.Collapsed;
+        ProfileName.Text = active.DisplayName;
+        ProfileDetail.Text = active.Subtitle;
+        var label = $"{active.DisplayName}, {active.Subtitle}. Switch profile";
+        ToolTipService.SetToolTip(ProfileItem, label);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ProfileItem, label);
+    }
+
+    private void ShowProfileMenu()
+    {
+        var roster = Koda.Services.Profiles.Roster;
+        var menu = new MenuFlyout();
+        foreach (var profile in roster.Profiles)
+        {
+            var item = new RadioMenuFlyoutItem
+            {
+                Text = profile.DisplayName,
+                GroupName = "Profile",
+                IsChecked = profile.Id == roster.ActiveId,
+            };
+            item.Click += (_, _) => _ = Koda.Services.Profiles.SwitchAsync(profile.Id);
+            menu.Items.Add(item);
+        }
+
+        menu.Items.Add(new MenuFlyoutSeparator());
+        menu.Items.Add(SongMenu.Item("Manage profiles…", "\uE713", () => _ = ProfilesDialog.ShowAsync()));
+        menu.ShowAt(ProfileItem);
+    }
+
+    // MARK: video
+
+    /// <summary>Starts a video and opens its page; the one everything that opens a video goes through.</summary>
+    public void OpenVideo(Koda.Core.Video.Video video)
+    {
+        _ = Video.PlayAsync(video);
+        if (ContentFrame.Content is not VideoWatchPage)
+        {
+            NavigateTo(typeof(VideoWatchPage));
+        }
+    }
+
+    /// <summary>The videos in the sidebar follow the setting, and the account's own lists need the account.</summary>
+    private void UpdateVideoSidebar()
+    {
+        var on = App.Settings.ShowsVideos;
+        var signedIn = App.Account.IsSignedIn;
+        var visible = on ? Visibility.Visible : Visibility.Collapsed;
+        var account = on && signedIn ? Visibility.Visible : Visibility.Collapsed;
+        VideosHeader.Visibility = VideoHomeItem.Visibility = VideoExploreItem.Visibility = VideoHistoryItem.Visibility = visible;
+        VideoSubscriptionsItem.Visibility = VideoChannelsItem.Visibility = VideoLaterItem.Visibility = VideoLikedItem.Visibility = account;
+
+        // Turned off: nothing of it stays behind, not a video in the bar nor a page of it.
+        if (!on)
+        {
+            if (Video.HasVideo)
+            {
+                Video.Stop();
+            }
+
+            if (ContentFrame.Content is IVideoPage)
+            {
+                NavigateRoot(typeof(HomePage), null, "home");
+            }
+        }
+    }
+
+    /// <summary>One bar at a time: the music's, the video's while a video is on, none on a
+    /// whole-window player. The picture follows to the bar when the watch page is left.</summary>
+    private void UpdateVideoBar()
+    {
+        var onWatch = ContentFrame.Content is VideoWatchPage;
+        var onNowPlaying = ContentFrame.Content is NowPlayingPage;
+        var videoOn = Video.HasVideo && !onWatch;
+        PlayerBar.Visibility = !onWatch && !onNowPlaying && !videoOn ? Visibility.Visible : Visibility.Collapsed;
+        VideoBar.Visibility = videoOn && !onNowPlaying ? Visibility.Visible : Visibility.Collapsed;
+        if (VideoBar.Visibility == Visibility.Visible)
+        {
+            if (!Video.IsAttached(VideoBarPicture))
+            {
+                Video.Attach(VideoBarPicture);
+            }
+
+            VideoBarTitle.Text = Video.Current?.Title ?? "";
+            VideoBarChannel.Text = Video.Current?.Channel?.Name ?? "";
+            VideoPlayIcon.Glyph = Video.IsPlaying ? "\uF8AE" : "\uF5B0";
+            var label = Video.IsPlaying ? "Pause" : "Play";
+            ToolTipService.SetToolTip(VideoPlayButton, $"{label} (Space)");
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(VideoPlayButton, label);
+            UpdateVideoBarTime();
+        }
+    }
+
+    private void UpdateVideoBarTime()
+    {
+        if (VideoBar.Visibility != Visibility.Visible || _videoScrubbing)
+        {
+            return;
+        }
+
+        var duration = Video.Duration;
+        if (duration > 0)
+        {
+            VideoScrubber.Maximum = duration;
+            VideoScrubber.Value = Math.Clamp(Video.Position, 0, duration);
+        }
+
+        VideoElapsed.Text = FormatTime(Video.Position);
+        VideoTotal.Text = FormatTime(duration);
+    }
+
+    private void OnVideoBarTapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (Video.HasVideo)
+        {
+            NavigateTo(typeof(VideoWatchPage));
+        }
+    }
+
+    private void OnVideoPlayClick(object sender, RoutedEventArgs e) => Video.TogglePlay();
+
+    private void OnVideoBackClick(object sender, RoutedEventArgs e) => Video.Skip(-10);
+
+    private void OnVideoAheadClick(object sender, RoutedEventArgs e) => Video.Skip(10);
+
+    private void OnVideoCloseClick(object sender, RoutedEventArgs e)
+    {
+        Video.Detach(VideoBarPicture);
+        Video.Stop();
+    }
+
+    /// <summary>The watch page filling the screen: no title bar, sidebar or bar around it.</summary>
+    public void SetVideoFullScreen(bool on)
+    {
+        if (_videoFullScreen == on)
+        {
+            return;
+        }
+
+        _videoFullScreen = on;
+        AppWindow.SetPresenter(on ? AppWindowPresenterKind.FullScreen : AppWindowPresenterKind.Overlapped);
+        AppTitleBar.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+        Root.RowDefinitions[0].Height = new GridLength(on ? 0 : TitleBarHeight);
+        Nav.IsPaneVisible = !on;
+    }
+
     // MARK: status ribbon
 
     private void OnStatusRaised(PlaybackService.StatusTone tone, string message)
@@ -1296,6 +1551,7 @@ public sealed partial class MainWindow : Window
 
         _shutdown = true;
         CloseMiniPlayer();
+        Video.Flush();
         Playback.Shutdown();
         _taskbar?.Dispose();
         _tray?.Dispose();
