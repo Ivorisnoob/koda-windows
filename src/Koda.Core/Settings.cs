@@ -161,6 +161,14 @@ public sealed class Settings
     /// details and Up Next under it; off, Up Next sits beside the video.</summary>
     public bool VideoTheater { get; set; }
 
+    /// <summary>The sidebar hidden entirely, from the title bar's button or Ctrl+B; the pages
+    /// take the whole width. Off by default.</summary>
+    public bool HidesSidebar { get; set; }
+
+    /// <summary>Sponsor reads, self-promotion and subscribe reminders in videos are skipped,
+    /// as SponsorBlock's community marked them. On by default.</summary>
+    public bool SkipsSponsors { get; set; } = true;
+
     /// <summary>Buttons beside previous and next jump back or ahead within the song.</summary>
     public bool ShowsSkipButtons { get; set; } = true;
 

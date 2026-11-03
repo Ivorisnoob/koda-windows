@@ -70,6 +70,10 @@ public sealed class PlaybackService
     private DateTimeOffset? _sleepAt;
     private int? _sleepMinutes;
     private bool _sleepAtEnd;
+    /// <summary>Whether the volume is currently being faded out for the sleep timer.</summary>
+    private bool _sleepFading;
+    /// <summary>The volume to restore once the fade ends or is cancelled.</summary>
+    private double _sleepSavedVolume = 100;
 
     /// <summary>The sleep timer's presets, in minutes.</summary>
     public static readonly int[] SleepPresets = [5, 10, 15, 30, 45, 60, 90];
@@ -205,6 +209,22 @@ public sealed class PlaybackService
         }
 
         _smtc?.SetTimeline(PositionSeconds, DurationSeconds);
+        // Fade out during the last 30 seconds when stopping after this song.
+        if (_sleepAtEnd && _wantsToPlay && sounding)
+        {
+            var remaining = DurationSeconds - PositionSeconds;
+            const double fadeWindow = 30.0;
+            if (remaining <= fadeWindow)
+            {
+                if (!_sleepFading)
+                {
+                    _sleepFading = true;
+                    _sleepSavedVolume = _player.Volume;
+                }
+                var factor = Math.Clamp(remaining / fadeWindow, 0, 1);
+                _player.Volume = _sleepSavedVolume * factor;
+            }
+        }
         WatchForStall(sounding);
     }
 
@@ -552,6 +572,7 @@ public sealed class PlaybackService
         _sleepAt = DateTimeOffset.Now.AddMinutes(minutes);
         _sleepMinutes = minutes;
         _sleepAtEnd = false;
+        _sleepFading = false;
         _sleepTimer?.Start();
         SleepChanged?.Invoke();
         StatusRaised?.Invoke(StatusTone.Pacing, $"Sleep timer: {minutes} minutes");
@@ -564,6 +585,7 @@ public sealed class PlaybackService
         _sleepAt = null;
         _sleepMinutes = null;
         _sleepAtEnd = true;
+        _sleepFading = false;
         _sleepTimer?.Stop();
         _player.DiscardStandby();
         SleepChanged?.Invoke();
@@ -578,6 +600,11 @@ public sealed class PlaybackService
             return;
         }
 
+        if (_sleepFading)
+        {
+            _player.Volume = _sleepSavedVolume;
+            _sleepFading = false;
+        }
         _sleepAt = null;
         _sleepMinutes = null;
         _sleepAtEnd = false;
@@ -596,25 +623,44 @@ public sealed class PlaybackService
             return;
         }
 
-        if (DateTimeOffset.Now < at)
+        var left = at - DateTimeOffset.Now;
+        if (left <= TimeSpan.Zero)
         {
+            if (_sleepFading)
+            {
+                _player.Volume = _sleepSavedVolume;
+                _sleepFading = false;
+            }
+            _sleepAt = null;
+            _sleepMinutes = null;
+            _sleepTimer?.Stop();
+            if (_wantsToPlay)
+            {
+                _wantsToPlay = false;
+                _player.Pause();
+                PlayStateChanged?.Invoke();
+                SaveQueue();
+            }
+
             SleepChanged?.Invoke();
+            StatusRaised?.Invoke(StatusTone.Pacing, "Sleep timer ended: playback paused.");
             return;
         }
 
-        _sleepAt = null;
-        _sleepMinutes = null;
-        _sleepTimer?.Stop();
-        if (_wantsToPlay)
+        // Fade the volume out over the last 30 seconds, so the pause lands softly.
+        const double fadeWindow = 30.0;
+        if (left.TotalSeconds <= fadeWindow && _wantsToPlay)
         {
-            _wantsToPlay = false;
-            _player.Pause();
-            PlayStateChanged?.Invoke();
-            SaveQueue();
+            if (!_sleepFading)
+            {
+                _sleepFading = true;
+                _sleepSavedVolume = _player.Volume;
+            }
+            var factor = Math.Clamp(left.TotalSeconds / fadeWindow, 0, 1);
+            _player.Volume = _sleepSavedVolume * factor;
         }
 
         SleepChanged?.Invoke();
-        StatusRaised?.Invoke(StatusTone.Pacing, "Sleep timer ended: playback paused.");
     }
 
     public void SetVolumePercent(double percent) => _player.Volume = percent;
@@ -955,6 +1001,11 @@ public sealed class PlaybackService
         if (_sleepAtEnd)
         {
             _sleepAtEnd = false;
+            if (_sleepFading)
+            {
+                _player.Volume = _sleepSavedVolume;
+                _sleepFading = false;
+            }
             _wantsToPlay = false;
             if (_queue.Advance(automatic: true) is not null)
             {

@@ -108,7 +108,7 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel VerticalAlignment="Center" Spacing="2">
                             <TextBlock Text="Default quality" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-                            <TextBlock Text="The tallest picture a video starts at. Up to 1080p for now." Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                            <TextBlock Text="The tallest picture a video starts at, up to 4K where the video has it. Auto follows the connection, up to 1080p." Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                         </StackPanel>
                         <ComboBox x:Name="VideoQualityBox" Grid.Column="1" MinWidth="120" VerticalAlignment="Center" AutomationProperties.Name="Default video quality" SelectionChanged="OnVideoQualityChanged" />
                     </Grid>

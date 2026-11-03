@@ -114,12 +114,21 @@ public sealed record WatchPage(
     string? CommentCount,
     string? CommentsToken,
     string? AutoplayId,
-    VideoPage Related)
+    VideoPage Related,
+    VideoChapter[]? Chapters = null)
 {
+    /// <summary>The chapter playing at <paramref name="seconds"/>; null for a video without them.</summary>
+    public VideoChapter? ChapterAt(double seconds) =>
+        Chapters is { Length: > 0 } chapters ? chapters.LastOrDefault(c => c.Start <= seconds) ?? chapters[0] : null;
+
     /// <summary>Up Next's first choice: YouTube's own autoplay pick when it's in the list, else its top.</summary>
     public Video? Next =>
         Related.Videos.FirstOrDefault(v => v.Id == AutoplayId) ?? Related.Videos.FirstOrDefault();
 }
+
+/// <summary>A titled stretch of a video, from its description's timestamps or YouTube's own.</summary>
+/// <param name="Start">Where it begins, in seconds.</param>
+public sealed record VideoChapter(string Title, double Start);
 
 /// <summary>One of a channel's tabs that Koda can show.</summary>
 public enum ChannelTabKind

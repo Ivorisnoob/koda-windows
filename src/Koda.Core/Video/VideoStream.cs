@@ -6,7 +6,29 @@ namespace Koda.Core.Video;
 
 /// <summary>One rung of a video's quality ladder.</summary>
 /// <param name="Height">The picture's lines: the shorter side, so a portrait video reads as its real quality.</param>
-public sealed record VideoQuality(int Height, int Fps, int Bandwidth);
+/// <param name="DirectUrl">A VP9 picture played as a plain file beside the sound, rather than
+/// through the DASH manifest; null for the manifest's H.264 rungs.</param>
+public sealed record VideoQuality(int Height, int Fps, int Bandwidth, string? DirectUrl = null)
+{
+    public bool IsDirect => DirectUrl is not null;
+
+    /// <summary>As the Quality menu shows it: 1080p60, 2160p (4K).</summary>
+    public string Label
+    {
+        get
+        {
+            var text = $"{Height}p{(Fps > 30 ? Fps.ToString(CultureInfo.InvariantCulture) : "")}";
+            return Height switch
+            {
+                >= 4320 => text + " (8K)",
+                >= 2160 => text + " (4K)",
+                >= 1440 => text + " (QHD)",
+                >= 720 => text + " (HD)",
+                _ => text,
+            };
+        }
+    }
+}
 
 /// <summary>
 /// A video ready for Windows' <c>AdaptiveMediaSource</c>.
@@ -17,18 +39,41 @@ public sealed record VideoQuality(int Height, int Fps, int Bandwidth);
 /// response also carries plain fMP4 URLs with their index ranges, so a recorded
 /// video is described to Windows as an on-demand DASH manifest built here, with
 /// separate audio and video, adaptive switching and seeking, and no remuxing.
+///
+/// The manifest can only carry H.264: Windows' DASH source opens YouTube's VP9 WebM but never
+/// reads its Cues index, so it stalls on the first frame. YouTube's VP9 is the better picture
+/// at every height (about a fifth more bitrate at 1080p60) and the only one above 1080p, so
+/// those rungs are kept as <see cref="Direct"/> files, played beside <see cref="AudioUrl"/>.
 /// </summary>
 /// <param name="Manifest">The DASH MPD text.</param>
-/// <param name="Qualities">The ladder, tallest first: the Quality menu.</param>
+/// <param name="Qualities">The manifest's H.264 ladder, tallest first.</param>
+/// <param name="Direct">The VP9 ladder, tallest first; empty when the answer had none.</param>
+/// <param name="AudioUrl">The soundtrack the manifest plays, as a file for a VP9 picture.</param>
 public sealed record VideoStream(
     string VideoId,
     string Manifest,
     IReadOnlyList<VideoQuality> Qualities,
     string UserAgent,
-    DateTimeOffset? ExpiresAt)
+    DateTimeOffset? ExpiresAt,
+    IReadOnlyList<VideoQuality>? Direct = null,
+    string? AudioUrl = null)
 {
     public bool IsFresh(DateTimeOffset? now = null) =>
         ExpiresAt is not { } e || (now ?? DateTimeOffset.UtcNow).AddMinutes(10) < e;
+
+    /// <summary>
+    /// The Quality menu, tallest first: one rung per height, the VP9 one where there is one
+    /// and VP9 can play (and a sound file to play beside it), the H.264 one otherwise.
+    /// </summary>
+    public IReadOnlyList<VideoQuality> Choices(bool directPlays)
+    {
+        var direct = directPlays && AudioUrl is not null ? Direct ?? [] : [];
+        return direct.Concat(Qualities)
+            .GroupBy(q => q.Height)
+            .Select(g => g.OrderByDescending(q => q.IsDirect).ThenByDescending(q => q.Fps).ThenByDescending(q => q.Bandwidth).First())
+            .OrderByDescending(q => q.Height)
+            .ToArray();
+    }
 
     /// <summary>
     /// The manifest held to one height: the tallest rung not above it, or the shortest
@@ -92,6 +137,34 @@ public static class DashManifest
             .ToArray();
         return ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + mpd, ladder);
     }
+
+    /// <summary>
+    /// The VP9 rungs as plain files, tallest first: 8-bit only, because the 10-bit HDR ones
+    /// (vp9.2) come out washed out on an SDR screen. One per height and frame rate.
+    /// </summary>
+    public static IReadOnlyList<VideoQuality> DirectRungs(Json root) =>
+        root["streamingData"]["adaptiveFormats"].Array
+            .Where(f => (f["mimeType"].String ?? "").StartsWith("video/webm", StringComparison.Ordinal)
+                && (f["mimeType"].String ?? "").Contains("codecs=\"vp9\"", StringComparison.Ordinal)
+                && f["url"].NonEmpty is not null)
+            .Select(f => new VideoQuality(
+                Math.Min(f["width"].Int ?? 0, f["height"].Int ?? 0),
+                f["fps"].Int ?? 0,
+                f["bitrate"].Int ?? 0,
+                f["url"].String))
+            .Where(q => q.Height > 0)
+            .GroupBy(q => (q.Height, q.Fps))
+            .Select(g => g.MaxBy(q => q.Bandwidth)!)
+            .OrderByDescending(q => q.Height)
+            .ThenByDescending(q => q.Fps)
+            .ToArray();
+
+    /// <summary>The soundtrack the manifest plays, as a URL for a VP9 picture to play beside.</summary>
+    public static string? AudioUrl(Json root) =>
+        BestAudio(root["streamingData"]["adaptiveFormats"].Array
+            .Where(f => IsMp4(f, "audio/mp4", "mp4a") && f["url"].NonEmpty is not null).ToArray()) is { } audio
+            ? audio["url"].String
+            : null;
 
     private static bool IsMp4(Json format, string container, string codec)
     {

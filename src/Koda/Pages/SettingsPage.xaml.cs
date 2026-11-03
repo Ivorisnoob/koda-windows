@@ -85,7 +85,7 @@ public sealed partial class SettingsPage : Page
         AutoplaySwitch.IsOn = settings.Autoplay;
         VideosSwitch.IsOn = settings.ShowsVideos;
         VideoAutoplaySwitch.IsOn = settings.AutoplaysVideos;
-        VideoQualityBox.ItemsSource = VideoQualityChoices.Select(q => q == 0 ? "Auto" : $"{q}p").ToArray();
+        VideoQualityBox.ItemsSource = VideoQualityChoices.Select(q => q == 0 ? "Auto" : new Koda.Core.Video.VideoQuality(q, 0, 0).Label).ToArray();
         VideoQualityBox.SelectedIndex = Math.Max(0, Array.IndexOf(VideoQualityChoices, settings.VideoQuality));
         NormalizeSwitch.IsOn = settings.NormalizesVolume;
         LosslessDownloadsSwitch.IsOn = settings.UsesLosslessServer;
@@ -553,7 +553,7 @@ public sealed partial class SettingsPage : Page
 
     // MARK: videos
 
-    private static readonly int[] VideoQualityChoices = [0, 1080, 720, 480, 360, 240, 144];
+    private static readonly int[] VideoQualityChoices = [0, 2160, 1440, 1080, 720, 480, 360, 240, 144];
 
     private void OnVideosToggled(object sender, RoutedEventArgs e)
     {

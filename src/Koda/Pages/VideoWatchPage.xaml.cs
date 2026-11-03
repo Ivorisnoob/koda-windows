@@ -92,6 +92,7 @@ public sealed partial class VideoWatchPage : Page, IVideoPage
         }
 
         DrawTime(Player.Position);
+        DrawChapter();
     });
 
     private void DrawTime(double position) =>
@@ -150,7 +151,190 @@ public sealed partial class VideoWatchPage : Page, IVideoPage
         }
 
         DrawDetails(video);
+        DrawActions();
+        DrawMarks();
+        DrawChapter();
         if (!playing) ShowControls();
+    }
+
+    /// <summary>Like, dislike and subscribe, as the account has them (or as just pressed).</summary>
+    private void DrawActions()
+    {
+        var watch = Player.Watch;
+        var rating = watch?.LikeStatus ?? LikeStatus.Indifferent;
+        LikeButton.IsEnabled = DislikeButton.IsEnabled = watch is not null;
+        LikeButton.IsChecked = rating == LikeStatus.Like;
+        DislikeButton.IsChecked = rating == LikeStatus.Dislike;
+        var count = watch is not null && watch.LikeCounts.TryGetValue(rating, out var shown) ? shown : "";
+        LikeCountText.Text = count;
+        LikeCountText.Visibility = count.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        var likeLabel = rating == LikeStatus.Like ? "Remove like" : count.Length > 0 ? $"Like, {count}" : "Like";
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(LikeButton, likeLabel);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(DislikeButton, rating == LikeStatus.Dislike ? "Remove dislike" : "Dislike");
+
+        var channel = watch?.Video.Channel ?? Player.Current?.Channel;
+        SubscribeButton.Visibility = watch is not null && channel?.Id is not null ? Visibility.Visible : Visibility.Collapsed;
+        var subscribed = watch?.IsSubscribed == true;
+        SubscribeText.Text = subscribed ? "Subscribed" : "Subscribe";
+        SubscribeButton.Style = (Style)Application.Current.Resources[subscribed ? "DefaultButtonStyle" : "AccentButtonStyle"];
+        var subscribeLabel = subscribed ? $"Unsubscribe from {channel?.Name}" : $"Subscribe to {channel?.Name}";
+        ToolTipService.SetToolTip(SubscribeButton, subscribeLabel);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(SubscribeButton, subscribeLabel);
+    }
+
+    private string? _marksFor;
+
+    /// <summary>
+    /// Chapter starts as small gaps in the track, SponsorBlock's segments as stretches over it:
+    /// redrawn when the video, its chapters or segments, or the track's width change.
+    /// </summary>
+    private void DrawMarks()
+    {
+        var duration = Player.Duration;
+        var chapters = Player.Watch?.Chapters ?? [];
+        var segments = Player.SkipSegments;
+        var width = Marks.ActualWidth;
+        var key = $"{Player.Current?.Id}|{chapters.Length}|{segments.Count}|{Math.Round(duration)}|{Math.Round(width)}";
+        if (key == _marksFor) return;
+        _marksFor = key;
+        Marks.Children.Clear();
+        if (duration <= 0 || width <= 0) return;
+
+        var skipBrush = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SystemFillColorCautionBrush"];
+        foreach (var segment in segments)
+        {
+            var left = Math.Clamp(segment.Start / duration, 0, 1) * width;
+            var right = Math.Clamp(segment.End / duration, 0, 1) * width;
+            var bar = new Microsoft.UI.Xaml.Shapes.Rectangle { Width = Math.Max(2, right - left), Height = 4, Fill = skipBrush, Opacity = 0.85 };
+            Canvas.SetLeft(bar, left);
+            Marks.Children.Add(bar);
+        }
+
+        var gap = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Black);
+        foreach (var chapter in chapters.Skip(1))
+        {
+            var tick = new Microsoft.UI.Xaml.Shapes.Rectangle { Width = 3, Height = 6, Fill = gap };
+            Canvas.SetLeft(tick, Math.Clamp(chapter.Start / duration, 0, 1) * width - 1.5);
+            Canvas.SetTop(tick, -1);
+            Marks.Children.Add(tick);
+        }
+    }
+
+    private void OnMarksSizeChanged(object sender, SizeChangedEventArgs e) => DrawMarks();
+
+    private void DrawChapter()
+    {
+        var chapter = Player.Chapter;
+        ChapterButton.Visibility = chapter is null ? Visibility.Collapsed : Visibility.Visible;
+        if (chapter is null || ChapterText.Text == chapter.Title) return;
+        ChapterText.Text = chapter.Title;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ChapterButton, $"Chapter: {chapter.Title}. Show chapters");
+    }
+
+    private void OnChapterClick(object sender, RoutedEventArgs e) =>
+        ChaptersMenu().ShowAt(ChapterButton, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions
+        {
+            Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedLeft,
+        });
+
+    private MenuFlyout ChaptersMenu()
+    {
+        var menu = new MenuFlyout();
+        foreach (var item in ChapterItems()) menu.Items.Add(item);
+        return menu;
+    }
+
+    private MenuFlyoutItemBase[] ChapterItems()
+    {
+        var current = Player.Chapter;
+        return (Player.Watch?.Chapters ?? []).Select(chapter =>
+        {
+            var item = new RadioMenuFlyoutItem
+            {
+                Text = $"{Format2(chapter.Start)}  {chapter.Title}",
+                GroupName = "VideoChapter",
+                IsChecked = chapter == current,
+            };
+            item.Click += (_, _) => Player.Seek(chapter.Start);
+            return (MenuFlyoutItemBase)item;
+        }).ToArray();
+    }
+
+    private void OnLikeClick(object sender, RoutedEventArgs e) =>
+        _ = Player.RateAsync(Player.Watch?.LikeStatus == LikeStatus.Like ? LikeStatus.Indifferent : LikeStatus.Like);
+
+    private void OnDislikeClick(object sender, RoutedEventArgs e) =>
+        _ = Player.RateAsync(Player.Watch?.LikeStatus == LikeStatus.Dislike ? LikeStatus.Indifferent : LikeStatus.Dislike);
+
+    private void OnSubscribeClick(object sender, RoutedEventArgs e) =>
+        _ = Player.SetSubscribedAsync(Player.Watch?.IsSubscribed != true);
+
+    private void OnPipClick(object sender, RoutedEventArgs e) => App.Shell?.ToggleVideoPictureInPicture();
+
+    /// <summary>Full screen ends, for the picture-in-picture window to take the picture.</summary>
+    public void LeaveFullScreen()
+    {
+        if (_immersive) SetImmersive(false);
+    }
+
+    /// <summary>The keys, in a dialog: a list to read, closed with Esc or Close.</summary>
+    private async void ShowShortcuts()
+    {
+        var rows = new (string Keys, string What)[]
+        {
+            ("K or Space", "Play or pause"),
+            ("J / L", "Back or ahead 10 seconds"),
+            ("Left / Right", "Back or ahead 5 seconds"),
+            ("Up / Down", "Volume up or down"),
+            ("M", "Mute"),
+            ("C", "Captions"),
+            ("F", "Full screen"),
+            ("T", "Theater mode"),
+            ("I", "Picture in picture"),
+            ("Esc", "Leave full screen"),
+            ("Ctrl+B", "Show or hide the sidebar"),
+            ("?", "These shortcuts"),
+        };
+        var grid = new Grid { ColumnSpacing = 24, RowSpacing = 10 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        for (var i = 0; i < rows.Length; i++)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var keys = new Border
+            {
+                Padding = new Thickness(8, 2, 8, 3),
+                CornerRadius = new CornerRadius(4),
+                BorderThickness = new Thickness(1),
+                BorderBrush = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
+                Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Child = new TextBlock { Text = rows[i].Keys, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Mono, Consolas") },
+            };
+            var what = new TextBlock { Text = rows[i].What, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+            Grid.SetRow(keys, i);
+            Grid.SetRow(what, i);
+            Grid.SetColumn(what, 1);
+            grid.Children.Add(keys);
+            grid.Children.Add(what);
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = "Keyboard shortcuts",
+            Content = new ScrollViewer { Content = grid },
+            CloseButtonText = "Close",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot,
+        };
+        try
+        {
+            await dialog.ShowAsync();
+        }
+        catch (Exception)
+        {
+            // Another dialog is open; the shortcuts can wait.
+        }
     }
 
     private void DrawDetails(VideoModel? video)
@@ -273,7 +457,8 @@ public sealed partial class VideoWatchPage : Page, IVideoPage
         }
         else if (theater)
         {
-            PlayerHost.Height = Math.Round(Math.Max(240, Math.Min(width * 9 / 16, height * 0.78)));
+            // Nearly the whole page tall, a strip left for the title to show there is more below.
+            PlayerHost.Height = Math.Round(Math.Max(240, Math.Min(width * 9 / 16, height - 72)));
         }
         else
         {
@@ -387,6 +572,13 @@ public sealed partial class VideoWatchPage : Page, IVideoPage
             case VirtualKey.T when !_immersive:
                 ToggleTheater();
                 break;
+            case VirtualKey.I:
+                App.Shell?.ToggleVideoPictureInPicture();
+                break;
+            case (VirtualKey)191 when Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift)
+                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down):
+                ShowShortcuts();
+                return true;
             case VirtualKey.C:
                 _ = Player.ToggleCaptionsAsync();
                 break;
@@ -448,9 +640,9 @@ public sealed partial class VideoWatchPage : Page, IVideoPage
 
         var quality = new MenuFlyoutSubItem { Text = "Quality", Icon = new FontIcon { Glyph = "" } };
         quality.Items.Add(QualityItem("Auto", 0));
-        foreach (var height in Player.Qualities.Select(q => q.Height).Distinct())
+        foreach (var rung in Player.Qualities)
         {
-            quality.Items.Add(QualityItem($"{height}p", height));
+            quality.Items.Add(QualityItem(rung.Label, rung.Height));
         }
 
         SettingsMenu.Items.Add(quality);
@@ -488,6 +680,33 @@ public sealed partial class VideoWatchPage : Page, IVideoPage
 
             SettingsMenu.Items.Add(captions);
         }
+
+        if (Player.Watch?.Chapters is { Length: > 0 })
+        {
+            var chapters = new MenuFlyoutSubItem { Text = "Chapters", Icon = new FontIcon { Glyph = "" } };
+            foreach (var item in ChapterItems()) chapters.Items.Add(item);
+            SettingsMenu.Items.Add(chapters);
+        }
+
+        SettingsMenu.Items.Add(new MenuFlyoutSeparator());
+        var sponsors = new ToggleMenuFlyoutItem
+        {
+            Text = "Skip sponsors (SponsorBlock)",
+            IsChecked = App.Settings.SkipsSponsors,
+            Icon = new FontIcon { Glyph = "" },
+        };
+        sponsors.Click += (_, _) =>
+        {
+            App.Settings.Update(s => s.SkipsSponsors = sponsors.IsChecked);
+            _marksFor = null;
+            DrawMarks();
+        };
+        SettingsMenu.Items.Add(sponsors);
+
+        var keys = new MenuFlyoutItem { Text = "Keyboard shortcuts", Icon = new FontIcon { Glyph = "" } };
+        keys.KeyboardAcceleratorTextOverride = "?";
+        keys.Click += (_, _) => ShowShortcuts();
+        SettingsMenu.Items.Add(keys);
     }
 
     private RadioMenuFlyoutItem QualityItem(string text, int height)

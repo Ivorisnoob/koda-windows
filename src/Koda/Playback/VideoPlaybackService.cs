@@ -13,6 +13,7 @@ using Koda.Helpers;
 using Koda.Services;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Controls;
+using Windows.Media;
 using Windows.Media.Core;
 using Windows.Media.Playback;
 using Windows.Media.Streaming.Adaptive;
@@ -38,8 +39,45 @@ public sealed class VideoPlaybackService
     public static VideoPlaybackService Instance { get; } = new();
 
     private readonly MediaPlayer _player = new();
+
+    /// <summary>The soundtrack, beside a VP9 picture that plays as a file in <see cref="_player"/>.
+    /// Idle while the DASH manifest plays both.</summary>
+    private readonly MediaPlayer _audio = new();
     private readonly HttpClient _http = new();
     private DispatcherQueueTimer? _tick;
+    private DispatcherQueueTimer? _sync;
+
+    /// <summary>The one clock a VP9 picture and its sound both play to.</summary>
+    private readonly MediaTimelineController _clock = new();
+    private bool _videoReady;
+    private bool _audioReady;
+    private DateTimeOffset _heldSince;
+
+    /// <summary>The picture is a VP9 file and the sound plays in <see cref="_audio"/>.</summary>
+    private bool _direct;
+
+    /// <summary>VP9 failed or stalled on this video: it plays the manifest's H.264 from then on.</summary>
+    private bool _directFailed;
+
+    /// <summary>The clock was paused because the picture or the sound ran dry, and runs again
+    /// once both have caught up.</summary>
+    private bool _held;
+    private static readonly Lazy<Task<bool>> Vp9Decodes = new(async () =>
+    {
+        try
+        {
+            var decoders = await new CodecQuery().FindAllAsync(CodecKind.Video, CodecCategory.Decoder, CodecSubtypes.VideoFormatVP90);
+            return decoders.Count > 0;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    });
+
+    /// <summary>Known once the codec query answers; false until then, so the menu never offers
+    /// what can't play.</summary>
+    private bool _vp9;
     private DispatcherQueueTimer? _autoplayTimer;
     private DispatcherQueue? _dispatch;
     private MediaPlayerElement? _element;
@@ -62,6 +100,9 @@ public sealed class VideoPlaybackService
     private string _caption = "";
     private bool _loadingCaptions;
     private int _autoplaySeconds;
+    private static readonly SponsorBlock Sponsors = new();
+    private SkipSegment[] _segments = [];
+    private double _lastTickPosition;
 
     private VideoPlaybackService()
     {
@@ -72,6 +113,20 @@ public sealed class VideoPlaybackService
         _player.MediaEnded += (_, _) => OnDispatch(OnEnded);
         _player.MediaFailed += (_, args) => OnDispatch(() => OnFailed(args));
         _player.PlaybackSession.PlaybackStateChanged += (_, _) => OnDispatch(OnStateChanged);
+
+        _audio.CommandManager.IsEnabled = false;
+        _audio.AudioCategory = MediaPlayerAudioCategory.Movie;
+        _audio.Volume = _player.Volume;
+        _audio.MediaOpened += (_, _) => OnDispatch(OnAudioOpened);
+        _audio.MediaFailed += (_, args) => OnDispatch(() =>
+        {
+            if (_direct) OnFailed(args);
+        });
+        _audio.PlaybackSession.PlaybackStateChanged += (_, _) => OnDispatch(SyncClock);
+        _clock.Ended += (_, _) => OnDispatch(() =>
+        {
+            if (_direct) OnEnded();
+        });
         _http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", ClientProfiles.Default.BrowserUserAgent);
     }
 
@@ -87,20 +142,26 @@ public sealed class VideoPlaybackService
 
     public bool IsLoading { get; private set; }
 
-    public bool IsPlaying => _player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing;
+    public bool IsPlaying => _direct
+        ? _clock.State == MediaTimelineControllerState.Running
+        : _player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing;
 
-    public bool IsBuffering => _player.PlaybackSession.PlaybackState == MediaPlaybackState.Buffering;
+    public bool IsBuffering => _held || _player.PlaybackSession.PlaybackState == MediaPlaybackState.Buffering;
 
     public string? Error { get; private set; }
 
-    public double Position => _player.PlaybackSession.Position.TotalSeconds;
+    public double Position => _direct ? _clock.Position.TotalSeconds : _player.PlaybackSession.Position.TotalSeconds;
 
     public double Duration => _duration > 0 ? _duration : _player.PlaybackSession.NaturalDuration.TotalSeconds;
 
-    public IReadOnlyList<VideoQuality> Qualities => _stream?.Qualities ?? [];
+    /// <summary>The Quality menu: VP9 where this PC decodes it, H.264 where it doesn't.</summary>
+    public IReadOnlyList<VideoQuality> Qualities => _stream?.Choices(_vp9 && !_directFailed) ?? [];
 
     /// <summary>0 is Auto; otherwise the height the source was held to.</summary>
     public int Quality { get; private set; }
+
+    /// <summary>What is on screen now: the VP9 file or the H.264 manifest, for the menu's note.</summary>
+    public bool IsDirect => _direct;
 
     public double Speed { get; private set; } = 1;
 
@@ -116,6 +177,12 @@ public sealed class VideoPlaybackService
     public int AutoplaySeconds => _autoplaySeconds;
 
     public Video? Next => Watch?.Next;
+
+    /// <summary>SponsorBlock's marks for this video, for the scrubber; empty when off or none.</summary>
+    public IReadOnlyList<SkipSegment> SkipSegments => App.Settings.SkipsSponsors ? _segments : [];
+
+    /// <summary>The chapter playing now; null for a video without chapters.</summary>
+    public VideoChapter? Chapter => Watch?.ChapterAt(Position);
 
     /// <summary>The player itself, for a page's MediaPlayerElement and the mini window.</summary>
     public MediaPlayer Player => _player;
@@ -136,13 +203,20 @@ public sealed class VideoPlaybackService
         PlaybackService.Instance.PlayStateChanged += () =>
         {
             // A song starting takes the sound back; the video waits where it is.
-            if (PlaybackService.Instance.IsPlaying && IsPlaying)
+            if (PlaybackService.Instance.IsPlaying && (IsPlaying || _held))
             {
-                _player.Pause();
+                PauseCore();
                 _shouldPlay = false;
                 Changed?.Invoke();
             }
         };
+        _ = KnowVp9Async();
+    }
+
+    private async Task KnowVp9Async()
+    {
+        _vp9 = await Vp9Decodes.Value;
+        OnDispatch(() => Changed?.Invoke());
     }
 
     // MARK: Opening
@@ -153,12 +227,16 @@ public sealed class VideoPlaybackService
         {
             if (startAt is { } position) Seek(position);
             _shouldPlay = true;
-            _player.Play();
+            PlayCore();
             Changed?.Invoke();
             return;
         }
 
         Current = video;
+        _directFailed = false;
+        _segments = [];
+        _lastTickPosition = 0;
+        _ = LoadSegmentsAsync(video);
         Watch = null;
         Error = null;
         _caption = "";
@@ -186,24 +264,19 @@ public sealed class VideoPlaybackService
         Changed?.Invoke();
         try
         {
+            _vp9 = await Vp9Decodes.Value;
             var stream = await EngineHost.Music.VideoStreamAsync(video.Id);
             if (generation != _generation) return;
             _stream = stream;
-            if (quality != 0 && !stream.Qualities.Any(q => q.Height == quality))
+            var choices = Qualities;
+            if (quality != 0 && !choices.Any(q => q.Height == quality))
             {
                 // A video offering less plays its best below the chosen height.
-                quality = stream.Qualities.FirstOrDefault(q => q.Height <= quality)?.Height ?? quality;
+                quality = choices.FirstOrDefault(q => q.Height <= quality)?.Height
+                    ?? choices.LastOrDefault()?.Height ?? 0;
             }
 
-            var manifest = quality == 0 ? stream.Manifest : stream.ManifestFor(quality);
-            var source = await CreateSourceAsync(manifest, stream, quality);
-            if (generation != _generation)
-            {
-                return;
-            }
-
-            _adaptive = source;
-            _player.Source = MediaSource.CreateFromAdaptiveMediaSource(source);
+            if (!await SetSourceAsync(stream, quality, generation)) return;
             if (record) App.Library.RecordWatch(video);
 
             // Up Next, details and comments: the watch page's own answer, fetched once here so
@@ -220,6 +293,88 @@ public sealed class VideoPlaybackService
         }
     }
 
+    private async Task LoadSegmentsAsync(Video video)
+    {
+        if (!App.Settings.SkipsSponsors) return;
+        var segments = await Sponsors.SegmentsAsync(video.Id);
+        OnDispatch(() =>
+        {
+            if (Current?.Id != video.Id) return;
+            _segments = segments;
+            Changed?.Invoke();
+        });
+    }
+
+    /// <summary>
+    /// Playing into a marked segment skips to its end, with a note saying what was skipped. Only
+    /// when play crosses its start: a listener who seeks into one, or back to it, means to watch.
+    /// </summary>
+    private void SkipSponsor(double position)
+    {
+        var last = _lastTickPosition;
+        _lastTickPosition = position;
+        if (!App.Settings.SkipsSponsors || _segments.Length == 0 || !IsPlaying) return;
+        if (position < last || position - last > 2) return;
+        var segment = _segments.FirstOrDefault(s => last <= s.Start + 0.05 && position >= s.Start && position < s.End - 0.5);
+        if (segment is null) return;
+        Seek(segment.End);
+        _lastTickPosition = segment.End;
+        App.Shell?.Note($"Skipped {segment.Label}");
+    }
+
+    // MARK: Rating and subscribing
+
+    /// <summary>Like, dislike or clear, on the account. Drawn at once; put back if YouTube says no.</summary>
+    public async Task RateAsync(LikeStatus status)
+    {
+        if (Watch is not { } watch || Current is not { } video) return;
+        if (!EngineHost.Account.IsSignedIn)
+        {
+            App.Shell?.Note("Sign in to YouTube in Settings to rate videos");
+            return;
+        }
+
+        var before = watch.LikeStatus;
+        Watch = watch with { LikeStatus = status };
+        Changed?.Invoke();
+        try
+        {
+            await EngineHost.Music.RateVideoAsync(video.Id, status);
+        }
+        catch (Exception)
+        {
+            if (Watch is { } now && Current?.Id == video.Id) Watch = now with { LikeStatus = before };
+            Changed?.Invoke();
+            App.Shell?.Note("YouTube didn't take that rating. Try again.");
+        }
+    }
+
+    public async Task SetSubscribedAsync(bool subscribed)
+    {
+        if (Watch is not { } watch || Current is not { } video) return;
+        var channelId = (watch.Video.Channel ?? video.Channel)?.Id;
+        if (channelId is null) return;
+        if (!EngineHost.Account.IsSignedIn)
+        {
+            App.Shell?.Note("Sign in to YouTube in Settings to subscribe");
+            return;
+        }
+
+        var before = watch.IsSubscribed;
+        Watch = watch with { IsSubscribed = subscribed };
+        Changed?.Invoke();
+        try
+        {
+            await EngineHost.Music.SetSubscribedOnYouTubeAsync(channelId, subscribed);
+        }
+        catch (Exception)
+        {
+            if (Watch is { } now && Current?.Id == video.Id) Watch = now with { IsSubscribed = before };
+            Changed?.Invoke();
+            App.Shell?.Note(subscribed ? "Couldn't subscribe. Try again." : "Couldn't unsubscribe. Try again.");
+        }
+    }
+
     private async Task LoadWatchAsync(Video video, int generation)
     {
         try
@@ -233,6 +388,49 @@ public sealed class VideoPlaybackService
         {
             // The video still plays; the page shows what it knows.
         }
+    }
+
+    /// <summary>
+    /// Puts the chosen quality on: a VP9 rung as two files, picture and sound, or the H.264
+    /// manifest (Auto, a height with no VP9, or a video whose VP9 already failed). False when
+    /// a newer open took over meanwhile.
+    /// </summary>
+    private async Task<bool> SetSourceAsync(VideoStream stream, int quality, int generation)
+    {
+        var rung = quality == 0 ? null : Qualities.FirstOrDefault(q => q.Height == quality && q.IsDirect);
+        if (rung is not null && stream.AudioUrl is { } audioUrl)
+        {
+            _adaptive = null;
+            _clock.Pause();
+            _direct = true;
+            _held = false;
+            _videoReady = _audioReady = false;
+            _player.TimelineController = _clock;
+            _audio.TimelineController = _clock;
+            _player.Source = MediaSource.CreateFromUri(new Uri(rung.DirectUrl!));
+            _audio.Source = MediaSource.CreateFromUri(new Uri(audioUrl));
+            _sync?.Start();
+            return true;
+        }
+
+        var manifest = quality == 0 ? stream.Manifest : stream.ManifestFor(quality);
+        var source = await CreateSourceAsync(manifest, stream, quality);
+        if (generation != _generation) return false;
+        StopAudio();
+        _adaptive = source;
+        _player.Source = MediaSource.CreateFromAdaptiveMediaSource(source);
+        return true;
+    }
+
+    private void StopAudio()
+    {
+        _direct = false;
+        _held = false;
+        _sync?.Stop();
+        _clock.Pause();
+        _audio.Source = null;
+        _player.TimelineController = null;
+        _audio.TimelineController = null;
     }
 
     private async Task<AdaptiveMediaSource> CreateSourceAsync(string manifest, VideoStream stream, int quality)
@@ -272,6 +470,13 @@ public sealed class VideoPlaybackService
 
     private void OnOpened()
     {
+        if (_direct)
+        {
+            _videoReady = true;
+            FinishDirectOpen();
+            return;
+        }
+
         if (_pendingPosition > 0.5)
         {
             _player.PlaybackSession.Position = TimeSpan.FromSeconds(_pendingPosition);
@@ -286,15 +491,91 @@ public sealed class VideoPlaybackService
         }
         catch (Exception)
         {
-            // A source that refuses a rate still plays at 1×.
+            // A source that refuses a rate still plays at 1x.
         }
 
-        if (_shouldPlay) _player.Play();
+        if (_shouldPlay) PlayCore();
         Changed?.Invoke();
+    }
+
+    private void OnAudioOpened()
+    {
+        if (!_direct) return;
+        _audioReady = true;
+        FinishDirectOpen();
+    }
+
+    /// <summary>Picture and sound both open: the shared clock goes to the place and starts.</summary>
+    private void FinishDirectOpen()
+    {
+        if (!_videoReady || !_audioReady) return;
+        _videoReady = _audioReady = false;
+        _duration = _player.PlaybackSession.NaturalDuration.TotalSeconds;
+        try
+        {
+            if (_duration > 0) _clock.Duration = TimeSpan.FromSeconds(_duration);
+            _clock.ClockRate = Speed;
+        }
+        catch (Exception)
+        {
+            // An older clock without these still keeps the two players together.
+        }
+
+        _clock.Position = TimeSpan.FromSeconds(Math.Max(0, _pendingPosition));
+        _pendingPosition = 0;
+        IsLoading = false;
+        if (_shouldPlay) PlayCore();
+        Changed?.Invoke();
+    }
+
+    // MARK: Two players, one clock
+
+    /// <summary>Play: the shared clock when picture and sound are separate files.</summary>
+    private void PlayCore()
+    {
+        _held = false;
+        if (_direct) _clock.Resume();
+        else _player.Play();
+    }
+
+    private void PauseCore()
+    {
+        _held = false;
+        if (_direct) _clock.Pause();
+        else _player.Pause();
+    }
+
+    /// <summary>
+    /// Picture and sound read one <see cref="MediaTimelineController"/>, so they cannot drift.
+    /// The clock does not wait for a player that runs out of data, so it is held while either
+    /// buffers and let go when both have caught up (or after three seconds, when Windows'
+    /// own catching up does better than waiting longer).
+    /// </summary>
+    private void SyncClock()
+    {
+        if (!_direct || _player.Source is null || _audio.Source is null || IsLoading) return;
+        var buffering = Waiting(_player) || Waiting(_audio);
+        if (_clock.State == MediaTimelineControllerState.Running && buffering && _shouldPlay)
+        {
+            _clock.Pause();
+            _held = true;
+            _heldSince = DateTimeOffset.UtcNow;
+            Changed?.Invoke();
+        }
+        else if (_held && (!buffering || DateTimeOffset.UtcNow - _heldSince > TimeSpan.FromSeconds(3)))
+        {
+            _held = false;
+            if (_shouldPlay) _clock.Resume();
+            Changed?.Invoke();
+        }
+
+        static bool Waiting(MediaPlayer player) =>
+            player.PlaybackSession.PlaybackState is MediaPlaybackState.Buffering or MediaPlaybackState.Opening;
     }
 
     private void OnStateChanged()
     {
+        SyncClock();
         if (IsBuffering)
         {
             if (_bufferingSince == DateTimeOffset.MaxValue) _bufferingSince = DateTimeOffset.UtcNow;
@@ -310,6 +591,7 @@ public sealed class VideoPlaybackService
     private void OnEnded()
     {
         _shouldPlay = false;
+        if (_direct) _clock.Pause();
         SaveProgress(force: true);
         Ended?.Invoke();
         Changed?.Invoke();
@@ -337,6 +619,15 @@ public sealed class VideoPlaybackService
         var position = Position;
         try
         {
+            if (_direct)
+            {
+                // The VP9 file failed or stalled: the same height in H.264 is the safe way on.
+                _directFailed = true;
+                StopAudio();
+                await OpenAsync(video, position, Quality, record: false);
+                return;
+            }
+
             // googlevideo URLs expire; a refused stream is resolved again, then the same place
             // is put back.
             await EngineHost.Music.VideoStreamFailedAsync(video.Id);
@@ -360,9 +651,9 @@ public sealed class VideoPlaybackService
     public void TogglePlay()
     {
         if (!HasVideo || _player.Source is null) return;
-        if (IsPlaying)
+        if (IsPlaying || _held)
         {
-            _player.Pause();
+            PauseCore();
             _shouldPlay = false;
             SaveProgress(force: true);
         }
@@ -371,7 +662,7 @@ public sealed class VideoPlaybackService
             _musicPausedForVideo |= PlaybackService.Instance.IsPlaying;
             PlaybackService.Instance.Pause();
             _shouldPlay = true;
-            _player.Play();
+            PlayCore();
         }
 
         Changed?.Invoke();
@@ -382,7 +673,8 @@ public sealed class VideoPlaybackService
         if (!HasVideo) return;
         var duration = Duration;
         var position = Math.Clamp(seconds, 0, duration > 0 ? duration : seconds);
-        _player.PlaybackSession.Position = TimeSpan.FromSeconds(position);
+        if (_direct) _clock.Position = TimeSpan.FromSeconds(position);
+        else _player.PlaybackSession.Position = TimeSpan.FromSeconds(position);
         _lastSavedPosition = -1;
         Tick?.Invoke();
     }
@@ -410,17 +702,29 @@ public sealed class VideoPlaybackService
             // Ignored: the next source picks the rate up.
         }
 
+        if (_direct)
+        {
+            try
+            {
+                _clock.ClockRate = Speed;
+            }
+            catch (Exception)
+            {
+                // Ignored: the clock keeps its rate.
+            }
+        }
+
         Changed?.Invoke();
     }
 
-    public void SetVolume(double percent) => _player.Volume = Math.Clamp(percent / 100, 0, 1);
+    public void SetVolume(double percent) => _player.Volume = _audio.Volume = Math.Clamp(percent / 100, 0, 1);
 
     public bool IsMuted
     {
         get => _player.IsMuted;
         set
         {
-            _player.IsMuted = value;
+            _player.IsMuted = _audio.IsMuted = value;
             Changed?.Invoke();
         }
     }
@@ -438,26 +742,18 @@ public sealed class VideoPlaybackService
     public async Task SetQualityAsync(int height)
     {
         if (Current is not { } video || _stream is null) return;
-        if (height != 0 && !_stream.Qualities.Any(q => q.Height == height)) return;
+        if (height != 0 && !Qualities.Any(q => q.Height == height)) return;
         var resume = Position;
-        var wasPlaying = _shouldPlay || IsPlaying;
+        var wasPlaying = _shouldPlay || IsPlaying || _held;
         Quality = height;
         var generation = ++_generation;
         IsLoading = true;
         Changed?.Invoke();
         try
         {
-            var manifest = height == 0 ? _stream.Manifest : _stream.ManifestFor(height);
-            var source = await CreateSourceAsync(manifest, _stream, height);
-            if (generation != _generation)
-            {
-                return;
-            }
-
-            _adaptive = source;
             _pendingPosition = resume;
             _shouldPlay = wasPlaying;
-            _player.Source = MediaSource.CreateFromAdaptiveMediaSource(source);
+            await SetSourceAsync(_stream, height, generation);
         }
         catch (Exception)
         {
@@ -593,9 +889,47 @@ public sealed class VideoPlaybackService
 
     // MARK: Attach
 
+    /// <summary>The picture-in-picture window's element while it is open: it keeps the picture,
+    /// and whatever asks for it meanwhile is parked until the window closes.</summary>
+    private MediaPlayerElement? _pip;
+    private MediaPlayerElement? _parked;
+
+    public bool InPictureInPicture => _pip is not null;
+
+    public void BeginPictureInPicture(MediaPlayerElement element)
+    {
+        _parked = _element;
+        _element?.SetMediaPlayer(null);
+        _element = null;
+        _pip = element;
+        Attach(element);
+        Changed?.Invoke();
+    }
+
+    /// <summary>The window closed: the picture goes back to where it was asked for last.</summary>
+    public void EndPictureInPicture()
+    {
+        if (_pip is not { } pip) return;
+        _pip = null;
+        Detach(pip);
+        if (_parked is { } parked)
+        {
+            _parked = null;
+            Attach(parked);
+        }
+
+        Changed?.Invoke();
+    }
+
     /// <summary>Puts the player's picture in a page's element, taking it from wherever it was.</summary>
     public void Attach(MediaPlayerElement element)
     {
+        if (_pip is not null && element != _pip)
+        {
+            _parked = element;
+            return;
+        }
+
         if (_element == element)
         {
             element.SetMediaPlayer(_player);
@@ -609,6 +943,7 @@ public sealed class VideoPlaybackService
 
     public void Detach(MediaPlayerElement element)
     {
+        if (_parked == element) _parked = null;
         if (_element == element)
         {
             element.SetMediaPlayer(null);
@@ -638,6 +973,14 @@ public sealed class VideoPlaybackService
         tick.Start();
         _tick = tick;
 
+        // A VP9 picture and its sound are checked for buffering four times a second; idle otherwise.
+        var sync = _dispatch.CreateTimer();
+        sync.Interval = TimeSpan.FromMilliseconds(250);
+        sync.IsRepeating = true;
+        sync.Tick += (_, _) => SyncClock();
+        _sync = sync;
+        if (_direct) sync.Start();
+
         var autoplay = _dispatch.CreateTimer();
         autoplay.Interval = TimeSpan.FromSeconds(1);
         autoplay.IsRepeating = true;
@@ -666,6 +1009,7 @@ public sealed class VideoPlaybackService
     private void OnTick()
     {
         if (!HasVideo) return;
+        SkipSponsor(Position);
         Tick?.Invoke();
 
         if (CaptionsOn && _cues.Count > 0)
@@ -710,6 +1054,7 @@ public sealed class VideoPlaybackService
         _generation++;
         SaveProgress(force: true);
         _player.Pause();
+        StopAudio();
         _player.Source = null;
         Current = null;
         Watch = null;

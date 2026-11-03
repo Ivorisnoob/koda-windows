@@ -50,6 +50,18 @@
                         AutomationProperties.Name="Back">
                         <FontIcon Glyph="&#xE72B;" FontSize="14" />
                     </Button>
+                    <Button
+                        x:Name="SidebarButton"
+                        Width="32"
+                        Height="32"
+                        Padding="0"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Click="OnSidebarClick"
+                        ToolTipService.ToolTip="Hide sidebar (Ctrl+B)"
+                        AutomationProperties.Name="Hide sidebar">
+                        <FontIcon x:Name="SidebarIcon" Glyph="&#xE89F;" FontSize="14" />
+                    </Button>
                     <Image Source="ms-appx:///Assets/icon.png" Width="18" Height="18" Margin="4,0,0,0" VerticalAlignment="Center" />
                     <TextBlock
                         x:Name="AppTitle"

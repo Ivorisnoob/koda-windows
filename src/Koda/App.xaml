@@ -207,6 +207,7 @@
                             <Border Margin="4" Padding="4,0" HorizontalAlignment="Right" VerticalAlignment="Bottom" CornerRadius="3" Background="#CC000000" Visibility="{Binding HasDuration, Converter={StaticResource BoolToVisibility}}">
                                 <TextBlock Text="{Binding Duration}" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="White" />
                             </Border>
+                            <ProgressBar VerticalAlignment="Bottom" Minimum="0" Maximum="1" Value="{Binding Progress}" Visibility="{Binding HasProgress, Converter={StaticResource BoolToVisibility}}" />
                         </Grid>
                     </Border>
                     <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Top">

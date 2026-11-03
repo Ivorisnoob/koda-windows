@@ -115,6 +115,49 @@ public class VideoStreamTests
     }
 
     [Fact]
+    public void KeepsEightBitVp9AsDirectRungsAndLeavesHdrOut()
+    {
+        var root = Json.Parse(Sample.Replace(
+            "{\"itag\": 139,",
+            """
+            {"itag": 335, "mimeType": "video/webm; codecs=\"vp9.2\"", "width": 1920, "height": 1080, "fps": 60, "bitrate": 9000000, "url": "https://host/335"},
+            {"itag": 315, "mimeType": "video/webm; codecs=\"vp9\"", "width": 3840, "height": 2160, "fps": 60, "bitrate": 26000000, "url": "https://host/315"},
+            {"itag": 139,
+            """));
+
+        var direct = DashManifest.DirectRungs(root);
+
+        Assert.Equal([2160, 1080], direct.Select(q => q.Height));
+        Assert.Equal("https://host/315", direct[0].DirectUrl);
+        Assert.Equal("https://host/248", direct[1].DirectUrl);
+        Assert.Equal("https://host/140", DashManifest.AudioUrl(root));
+    }
+
+    [Fact]
+    public void ChoicesPreferVp9WhereItPlaysAndH264Elsewhere()
+    {
+        var root = Json.Parse(Sample);
+        var (manifest, qualities) = DashManifest.Build(root)!.Value;
+        var stream = new VideoStream("v", manifest, qualities, "agent", null, DashManifest.DirectRungs(root), DashManifest.AudioUrl(root));
+
+        var choices = stream.Choices(directPlays: true);
+        Assert.Equal([1080, 720], choices.Select(q => q.Height));
+        Assert.True(choices[0].IsDirect);
+        Assert.False(choices[1].IsDirect);
+
+        Assert.All(stream.Choices(directPlays: false), q => Assert.False(q.IsDirect));
+        Assert.All((stream with { AudioUrl = null }).Choices(directPlays: true), q => Assert.False(q.IsDirect));
+    }
+
+    [Fact]
+    public void LabelsShowFrameRateAndSize()
+    {
+        Assert.Equal("2160p60 (4K)", new VideoQuality(2160, 60, 1).Label);
+        Assert.Equal("1080p (HD)", new VideoQuality(1080, 30, 1).Label);
+        Assert.Equal("480p", new VideoQuality(480, 30, 1).Label);
+    }
+
+    [Fact]
     public void AnExpiringStreamIsNotFresh()
     {
         var now = DateTimeOffset.UtcNow;

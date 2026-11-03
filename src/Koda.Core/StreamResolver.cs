@@ -223,7 +223,8 @@ public sealed class StreamResolver : IDisposable
             if (lastByte == false) return null;
             if (lastByte == true) _identity.MarkVetted(token);
         }
-        return new VideoStream(videoId, dash.Manifest, dash.Qualities, userAgent, expiresAt);
+        return new VideoStream(videoId, dash.Manifest, dash.Qualities, userAgent, expiresAt,
+            DashManifest.DirectRungs(root), DashManifest.AudioUrl(root));
     }
 
     /// <summary>Forget a stream googlevideo refused mid-play, so the next resolve starts fresh.</summary>

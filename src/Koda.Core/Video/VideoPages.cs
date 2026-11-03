@@ -77,7 +77,31 @@ public static class VideoPages
             comments["engagementPanelTitleHeaderRenderer"]["contextualInfo"].Text().NonEmptyOrNull(),
             CommentsToken(root),
             root.First("autoplayVideo")["watchEndpoint"]["videoId"].NonEmpty,
-            Page(related));
+            Page(related),
+            Chapters(root));
+    }
+
+    /// <summary>
+    /// The video's chapters, as the player bar marks them: the description's own
+    /// (<c>DESCRIPTION_CHAPTERS</c>) before YouTube's automatic ones. A page draws the same
+    /// chapters more than once, so the first set is the one; fewer than two isn't chapters.
+    /// </summary>
+    public static VideoChapter[] Chapters(Json root)
+    {
+        var markers = root.Objects("multiMarkersPlayerBarRenderer").FirstOrDefault()["markersMap"].Array;
+        var set = markers.FirstOrDefault(m => m["key"].String == "DESCRIPTION_CHAPTERS");
+        if (!set.Exists) set = markers.FirstOrDefault(m => m["key"].String == "AUTO_CHAPTERS");
+        if (!set.Exists) set = markers.FirstOrDefault();
+        var chapters = set["value"]["chapters"].Array
+            .Select(c => c["chapterRenderer"])
+            .Where(c => c.Exists && c["timeRangeStartMillis"].Double is not null)
+            .Select(c => new VideoChapter(c["title"].Text(), c["timeRangeStartMillis"].Double!.Value / 1000))
+            .Where(c => c.Title.Length > 0)
+            .GroupBy(c => c.Start)
+            .Select(g => g.First())
+            .OrderBy(c => c.Start)
+            .ToArray();
+        return chapters.Length >= 2 ? chapters : [];
     }
 
     /// <summary>The count on the video's own like button for each rating. A creator hiding it

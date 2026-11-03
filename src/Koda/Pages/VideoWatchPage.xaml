@@ -104,6 +104,14 @@
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
+                        <!-- Chapter starts and SponsorBlock's segments, drawn on the track under the thumb. -->
+                        <Canvas
+                            x:Name="Marks"
+                            Height="4"
+                            Margin="10,0"
+                            VerticalAlignment="Center"
+                            IsHitTestVisible="False"
+                            SizeChanged="OnMarksSizeChanged" />
                         <Slider
                             x:Name="Scrubber"
                             Minimum="0"
@@ -146,6 +154,24 @@
                                 <TextBlock x:Name="TimeText" VerticalAlignment="Center" Margin="4,0,0,0" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="White" />
                             </StackPanel>
 
+                            <!-- The chapter playing; opens the chapter list. -->
+                            <HyperlinkButton
+                                x:Name="ChapterButton"
+                                Grid.Column="1"
+                                Padding="8,4"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                Foreground="White"
+                                Visibility="Collapsed"
+                                Click="OnChapterClick"
+                                AutomationProperties.Name="Chapters">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="·" />
+                                    <TextBlock x:Name="ChapterText" MaxWidth="320" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" Style="{ThemeResource CaptionTextBlockStyle}" />
+                                    <FontIcon Glyph="&#xE76C;" FontSize="10" />
+                                </StackPanel>
+                            </HyperlinkButton>
+
                             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2">
                                 <Button x:Name="CaptionsButton" Style="{StaticResource PlayerButton}" Click="OnCaptionsClick" ToolTipService.ToolTip="Captions (C)" AutomationProperties.Name="Captions">
                                     <FontIcon x:Name="CaptionsIcon" Glyph="&#xED1E;" FontSize="16" />
@@ -155,6 +181,9 @@
                                     <Button.Flyout>
                                         <MenuFlyout x:Name="SettingsMenu" Opening="OnSettingsMenuOpening" Placement="TopEdgeAlignedRight" />
                                     </Button.Flyout>
+                                </Button>
+                                <Button x:Name="PipButton" Style="{StaticResource PlayerButton}" Click="OnPipClick" ToolTipService.ToolTip="Picture in picture (I)" AutomationProperties.Name="Picture in picture">
+                                    <FontIcon Glyph="&#xE8A7;" FontSize="16" />
                                 </Button>
                                 <Button x:Name="TheaterButton" Style="{StaticResource PlayerButton}" Click="OnTheaterClick" ToolTipService.ToolTip="Theater mode (T)" AutomationProperties.Name="Theater mode">
                                     <FontIcon x:Name="TheaterIcon" Glyph="&#xE9A6;" FontSize="16" />
@@ -189,7 +218,22 @@
                                 </StackPanel>
                             </StackPanel>
                         </Button>
-                        <DropDownButton Grid.Column="1" VerticalAlignment="Center" AutomationProperties.Name="Share">
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Button x:Name="SubscribeButton" Click="OnSubscribeClick" Visibility="Collapsed" AutomationProperties.Name="Subscribe">
+                            <TextBlock x:Name="SubscribeText" Text="Subscribe" />
+                        </Button>
+                        <StackPanel Orientation="Horizontal" Spacing="2">
+                            <ToggleButton x:Name="LikeButton" Click="OnLikeClick" CornerRadius="4,0,0,4" ToolTipService.ToolTip="I like this" AutomationProperties.Name="Like">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE8E1;" FontSize="14" />
+                                    <TextBlock x:Name="LikeCountText" />
+                                </StackPanel>
+                            </ToggleButton>
+                            <ToggleButton x:Name="DislikeButton" Click="OnDislikeClick" CornerRadius="0,4,4,0" ToolTipService.ToolTip="I dislike this" AutomationProperties.Name="Dislike">
+                                <FontIcon Glyph="&#xE8E0;" FontSize="14" />
+                            </ToggleButton>
+                        </StackPanel>
+                        <DropDownButton VerticalAlignment="Center" AutomationProperties.Name="Share">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <FontIcon Glyph="&#xE72D;" FontSize="14" />
                                 <TextBlock Text="Share" />
@@ -209,6 +253,7 @@
                                 </MenuFlyout>
                             </DropDownButton.Flyout>
                         </DropDownButton>
+                        </StackPanel>
                     </Grid>
 
                     <Expander x:Name="DescriptionExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">

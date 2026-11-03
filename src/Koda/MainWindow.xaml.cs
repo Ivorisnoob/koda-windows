@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -78,6 +78,12 @@ public sealed partial class MainWindow : Window
 
     private bool _videoScrubbing;
     private bool _videoFullScreen;
+
+    /// <summary>Whether the sidebar was wide or collapsed to icons when it was last hidden.</summary>
+    private bool _paneWasOpen = true;
+
+    /// <summary>The sidebar collapsed to icons, as MainWindow.xaml sets it.</summary>
+    private const double CompactPaneWidth = 52;
 
     public MainWindow()
     {
@@ -187,6 +193,7 @@ public sealed partial class MainWindow : Window
 
         AddShortcuts();
         ApplySkipSettings();
+        ApplySidebar();
 
         ContentFrame.Navigated += OnContentNavigated;
         Nav.RegisterPropertyChangedCallback(NavigationView.IsPaneOpenProperty, (_, _) => UpdatePaneChrome());
@@ -272,7 +279,7 @@ public sealed partial class MainWindow : Window
         RightInset.Width = new GridLength(AppWindow.TitleBar.RightInset / scale / _titleScale);
 
         var rects = new List<RectInt32>();
-        foreach (var element in new FrameworkElement[] { BackButton, TitleSearch })
+        foreach (var element in new FrameworkElement[] { BackButton, SidebarButton, TitleSearch })
         {
             var bounds = element.TransformToVisual(null).TransformBounds(new Windows.Foundation.Rect(0, 0, element.ActualWidth, element.ActualHeight));
             rects.Add(new RectInt32(
@@ -832,6 +839,7 @@ public sealed partial class MainWindow : Window
         }
 
         Add(VirtualKey.F, VirtualKeyModifiers.Control, () => TitleSearch.Focus(FocusState.Keyboard));
+        Add(VirtualKey.B, VirtualKeyModifiers.Control, ToggleSidebar);
         Add(VirtualKey.P, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, () => _ = Koda.Services.Profiles.SwitchBackAsync());
         Add(VirtualKey.Left, VirtualKeyModifiers.Menu, GoBack);
         Add(VirtualKey.GoBack, VirtualKeyModifiers.None, GoBack);
@@ -1401,7 +1409,70 @@ public sealed partial class MainWindow : Window
         AppWindow.SetPresenter(on ? AppWindowPresenterKind.FullScreen : AppWindowPresenterKind.Overlapped);
         AppTitleBar.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
         Root.RowDefinitions[0].Height = new GridLength(on ? 0 : TitleBarHeight);
-        Nav.IsPaneVisible = !on;
+        ApplySidebar();
+    }
+
+    // MARK: sidebar
+
+    private void OnSidebarClick(object sender, RoutedEventArgs e) => ToggleSidebar();
+
+    private void ToggleSidebar()
+    {
+        if (_videoFullScreen)
+        {
+            return;
+        }
+
+        App.Settings.Update(s => s.HidesSidebar = !s.HidesSidebar);
+        ApplySidebar();
+    }
+
+    /// <summary>The sidebar shown or hidden entirely, as the listener left it; full screen
+    /// always hides it. The title bar's button says which way it will go.</summary>
+    private void ApplySidebar()
+    {
+        var hidden = App.Settings.HidesSidebar;
+        var visible = !hidden && !_videoFullScreen;
+        if (Nav.IsPaneVisible != visible)
+        {
+            // NavigationView opens the pane wide whenever it is shown again; a sidebar the
+            // listener had collapsed to icons comes back collapsed.
+            if (!visible)
+            {
+                _paneWasOpen = Nav.IsPaneOpen;
+            }
+
+            // In Left mode a hidden pane that was collapsed to icons keeps its compact strip
+            // reserved (the SplitView stays CompactInline). LeftMinimal reserves nothing, so the
+            // hidden sidebar is Minimal, with its toggle button hidden too.
+            Nav.PaneDisplayMode = visible ? NavigationViewPaneDisplayMode.Left : NavigationViewPaneDisplayMode.LeftMinimal;
+            Nav.IsPaneToggleButtonVisible = visible;
+            Nav.CompactPaneLength = visible ? CompactPaneWidth : 0;
+            Nav.IsPaneVisible = visible;
+            if (visible)
+            {
+                var open = _paneWasOpen;
+                Nav.IsPaneOpen = open;
+                // Back from Minimal, the section headers keep their wide look until the pane
+                // changes state after the mode switch has settled; a collapsed sidebar is
+                // opened and closed again then, so they take the compact one.
+                var settle = DispatcherQueue.CreateTimer();
+                settle.Interval = TimeSpan.FromMilliseconds(120);
+                settle.IsRepeating = false;
+                settle.Tick += (_, _) =>
+                {
+                    if (!Nav.IsPaneVisible) return;
+                    if (!open) Nav.IsPaneOpen = true;
+                    Nav.IsPaneOpen = open;
+                };
+                settle.Start();
+            }
+        }
+
+        SidebarIcon.Glyph = hidden ? "\uE8A0" : "\uE89F";
+        var label = hidden ? "Show sidebar" : "Hide sidebar";
+        ToolTipService.SetToolTip(SidebarButton, $"{label} (Ctrl+B)");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(SidebarButton, label);
     }
 
     // MARK: status ribbon
@@ -1513,6 +1584,36 @@ public sealed partial class MainWindow : Window
         };
         mini.Activate();
     }
+
+    private VideoPipWindow? _videoPip;
+
+    /// <summary>The video in its own always-on-top overlay; a second request toggles it closed.</summary>
+    public void ToggleVideoPictureInPicture()
+    {
+        if (_videoPip is not null)
+        {
+            _videoPip.Close();
+            return;
+        }
+
+        if (!Video.HasVideo) return;
+        if (_videoFullScreen && ContentFrame.Content is VideoWatchPage page) page.LeaveFullScreen();
+        var pip = new VideoPipWindow();
+        _videoPip = pip;
+        pip.RestoreRequested += () =>
+        {
+            pip.Close();
+            ShowFromTray();
+            if (ContentFrame.Content is not VideoWatchPage) NavigateTo(typeof(VideoWatchPage));
+        };
+        pip.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_videoPip, pip)) _videoPip = null;
+        };
+        pip.Activate();
+    }
+
+    public bool InVideoPictureInPicture => _videoPip is not null;
 
     /// <summary>Hiding the library hides the overlay with it; there is nothing left to see.</summary>
     public void CloseMiniPlayer()
