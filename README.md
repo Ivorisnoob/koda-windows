@@ -27,6 +27,31 @@ No official YouTube API key, no ads in the app, and signing in to YouTube Music 
 Questions, bug reports and ideas are welcome in the [Telegram community](https://t.me/ivorisnoob_chat),
 shared with Koda for Android and the rest of the family.
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center"><img src="Screenshots/home.png" width="420" alt="Home"><br><sub>Home</sub></td>
+    <td align="center"><img src="Screenshots/lyrics.png" width="420" alt="Lyrics, word by word"><br><sub>Lyrics, word by word</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="Screenshots/queue.png" width="420" alt="Now Playing and Up Next"><br><sub>Now Playing and Up Next</sub></td>
+    <td align="center"><img src="Screenshots/artist.png" width="420" alt="Artist"><br><sub>Artist</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="Screenshots/browse.png" width="420" alt="Moods and genres"><br><sub>Moods and genres</sub></td>
+    <td align="center"><img src="Screenshots/playlist.png" width="420" alt="Your playlist"><br><sub>Your playlist</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="Screenshots/stats.png" width="420" alt="Listening stats"><br><sub>Listening stats</sub></td>
+    <td align="center"><img src="Screenshots/artists.png" width="420" alt="Your artists"><br><sub>Your artists</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="Screenshots/home-compact.png" width="420" alt="The sidebar folded to a rail"><br><sub>The sidebar folded to a rail</sub></td>
+    <td align="center"><img src="Screenshots/settings.png" width="420" alt="Last.fm, Discord and downloads"><br><sub>Last.fm, Discord and downloads</sub></td>
+  </tr>
+</table>
+
 ## Download
 
 Get the latest release from the [releases page](https://github.com/Ivorisnoob/koda-windows/releases/latest).
